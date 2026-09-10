@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Models\Ciudad;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -204,7 +205,7 @@ class ImportarArgentina extends Command
                     'nombre' => $c->nombre,
                     'alias' => $c->alias,
                     // Clave de búsqueda: sin acentos y en minúsculas.
-                    'nombre_min' => Str::lower(Str::ascii((string) $c->nombre)),
+                    'nombre_min' => Ciudad::normalizar((string) $c->nombre),
                     'url' => $c->url,
                     'alternatenames' => $c->tags ?: null,
                     'centro_x' => $c->centro_x,

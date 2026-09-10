@@ -4,61 +4,183 @@ import Alpine from 'alpinejs';
 
 window.Alpine = Alpine;
 
+/**
+ * Buscador de direcciones de la home.
+ *
+ * Va en dos pasos porque así están los datos: primero se resuelve la ciudad
+ * (tabla ciudades) y después la calle dentro de ella (tabla busquedas, que es
+ * el histórico de lo que la gente buscó). Antes esto era un array de
+ * direcciones hardcodeadas con un setTimeout simulando la demora.
+ */
 document.addEventListener('alpine:init', () => {
     Alpine.data('addressFinderApp', () => ({
-        searchQuery: '',
-        isLoading: false,
-        showResults: false,
-        searchResults: null,
-        
-        usAddresses: [
-            "1600 Pennsylvania Avenue NW, Washington, D.C.",
-            "10 Downing Street, London, UK",
-            "2131 South 1st Street, San Jose, CA",
-            "42 Wallaby Way, Sydney, AU",
-            "1550 N Broadway St, San Francisco, CA",
-            "1776 Independence Avenue, Philadelphia, PA",
-            "3162 W 111th Street, Chicago, IL",
-            "100 N Alafaya Trail, Orlando, FL",
-            "221B Baker Street, London, UK",
-            "901 North 15th Street, Omaha, NE",
-            "350 5th Avenue, New York, NY"
-        ],
+        // Paso 1 — ciudad
+        ciudadQuery: '',
+        sugerencias: [],
+        mostrarSugerencias: false,
+        ciudad: null,
 
-        get filteredSuggestions() {
-            const query = this.searchQuery.toLowerCase().trim();
-            if (query.length < 3) return [];
-            return this.usAddresses.filter(addr => addr.toLowerCase().includes(query));
+        // Paso 2 — calle dentro de la ciudad
+        calleQuery: '',
+        // Término que produjo la lista que se está mostrando. Se usa para el
+        // encabezado en vez de calleQuery, que cambia apenas el usuario tipea
+        // y dejaría el título describiendo una lista que todavía no llegó.
+        calleQueryAplicada: '',
+        calles: [],
+        totalCalles: 0,
+        calleElegida: null,
+        altura: '',
+
+        cargando: false,
+        error: null,
+
+        // Descarta respuestas que llegan fuera de orden: si el usuario sigue
+        // tipeando, solo vale la última petición disparada.
+        _token: 0,
+        _debounce: null,
+
+        get hayCiudad() {
+            return this.ciudad !== null;
         },
 
-        get showSuggestions() {
-            return this.searchQuery.length > 2 && this.filteredSuggestions.length > 0;
+        get direccionCompleta() {
+            if (!this.calleElegida) return '';
+            const altura = this.altura.trim();
+            const calle = altura ? `${this.calleElegida} ${altura}` : this.calleElegida;
+            return `${calle}, ${this.ciudad.nombre}, ${this.ciudad.provincia}, ${this.ciudad.pais}`;
         },
 
-        search() {
-            const query = this.searchQuery.trim();
-            if (query === '') return;
+        /** URL del mapa embebido de OSM, encuadrado con el bbox de la ciudad. */
+        get mapaUrl() {
+            if (!this.ciudad) return '';
+            const { lat, lon } = this.ciudad;
+            // Sin bbox propio del backend usamos un margen fijo alrededor del
+            // centro. El redondeo evita que la resta de floats meta ruido del
+            // tipo -33.006820000000005 en la URL.
+            const d = 0.06;
+            const bbox = [lon - d, lat - d, lon + d, lat + d]
+                .map((n) => n.toFixed(5))
+                .join(',');
+            return `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat},${lon}`;
+        },
 
-            this.isLoading = true;
-            this.showResults = true;
-            this.searchResults = null;
+        get osmUrl() {
+            if (!this.ciudad) return '';
+            const consulta = encodeURIComponent(this.direccionCompleta || this.ciudad.nombre);
+            return `https://www.openstreetmap.org/search?query=${consulta}`;
+        },
 
-            setTimeout(() => {
-                const foundAddress = this.usAddresses.find(addr => addr.toLowerCase().includes(query.toLowerCase()));
+        _debounced(fn) {
+            clearTimeout(this._debounce);
+            this._debounce = setTimeout(fn, 250);
+        },
 
-                if (foundAddress) {
-                    this.searchResults = { found: true, address: foundAddress };
-                } else {
-                    this.searchResults = { found: false };
+        async _json(url, token) {
+            const respuesta = await fetch(url, {
+                headers: { Accept: 'application/json' },
+            });
+
+            if (!respuesta.ok) {
+                throw new Error(`HTTP ${respuesta.status}`);
+            }
+
+            const datos = await respuesta.json();
+
+            // Llegó tarde: ya hay una petición más nueva en curso.
+            if (token !== this._token) return null;
+
+            return datos;
+        },
+
+        buscarCiudad() {
+            const q = this.ciudadQuery.trim();
+            this.error = null;
+
+            if (q.length < 2) {
+                this.sugerencias = [];
+                this.mostrarSugerencias = false;
+                return;
+            }
+
+            this._debounced(async () => {
+                const token = ++this._token;
+                this.cargando = true;
+
+                try {
+                    const datos = await this._json(`/api/ciudades?q=${encodeURIComponent(q)}`, token);
+                    if (datos === null) return;
+
+                    this.sugerencias = datos;
+                    this.mostrarSugerencias = true;
+                } catch (e) {
+                    this.error = 'No pudimos buscar la ciudad. Probá de nuevo.';
+                    this.sugerencias = [];
+                } finally {
+                    if (token === this._token) this.cargando = false;
                 }
-                this.isLoading = false;
-            }, 1500);
+            });
         },
-        
-        selectSuggestion(address) {
-            this.searchQuery = address;
-            this.search();
-        }
+
+        async elegirCiudad(ciudad) {
+            this.ciudad = ciudad;
+            this.ciudadQuery = `${ciudad.nombre}, ${ciudad.provincia}`;
+            this.mostrarSugerencias = false;
+            this.sugerencias = [];
+            this.calleQuery = '';
+            this.calleElegida = null;
+            this.altura = '';
+
+            await this.cargarCalles();
+        },
+
+        async cargarCalles() {
+            if (!this.ciudad) return;
+
+            const token = ++this._token;
+            const q = this.calleQuery.trim();
+            this.cargando = true;
+            this.error = null;
+
+            try {
+                const url = `/api/ciudades/${this.ciudad.id}/calles${q ? `?q=${encodeURIComponent(q)}` : ''}`;
+                const datos = await this._json(url, token);
+                if (datos === null) return;
+
+                this.calles = datos.calles;
+                this.calleQueryAplicada = q;
+                this.totalCalles = datos.ciudad.total_calles;
+            } catch (e) {
+                this.error = 'No pudimos traer las calles de esta ciudad.';
+                this.calles = [];
+            } finally {
+                if (token === this._token) this.cargando = false;
+            }
+        },
+
+        buscarCalle() {
+            this._debounced(() => this.cargarCalles());
+        },
+
+        elegirCalle(nombre) {
+            this.calleElegida = nombre;
+            this.calleQuery = nombre;
+
+            // Sin esto la lista queda mostrando el top de la ciudad mientras
+            // el encabezado ya dice que son las coincidencias del término.
+            this.cargarCalles();
+        },
+
+        limpiar() {
+            this.ciudad = null;
+            this.ciudadQuery = '';
+            this.sugerencias = [];
+            this.mostrarSugerencias = false;
+            this.calleQuery = '';
+            this.calles = [];
+            this.calleElegida = null;
+            this.altura = '';
+            this.error = null;
+        },
     }));
 });
 

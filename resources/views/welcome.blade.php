@@ -6,66 +6,125 @@
     <div x-data="addressFinderApp()" class="bg-white rounded-2xl shadow-xl w-full max-w-2xl p-8 md:p-12 text-center my-8">
 
         <h1 class="text-3xl md:text-4xl font-extrabold text-gray-900 mb-2">
-            Address Finder for the United States
+            Address Finder for Argentina
         </h1>
         <p class="text-gray-600 text-lg mb-8">
-            Instantly find any U.S. address. Our tool is the fastest, free, and <strong class="font-bold text-gray-800">completely anonymous</strong> way to perform a reverse address lookup.
+            Search any street in <strong class="font-bold text-gray-800">6,921 cities</strong> across Argentina. Our tool is the fastest, free, and <strong class="font-bold text-gray-800">completely anonymous</strong> way to perform a reverse address lookup.
         </p>
 
         <div class="ad-placeholder">
             Anuncio adaptable (970x250, 728x90, 320x100)
         </div>
 
-        <div class="w-full relative">
-            <input x-model="searchQuery" x-on:keydown.enter="search()" x-on:click.outside="showSuggestions = false" type="text" placeholder="Enter an address or a street..."
-                   class="w-full p-4 md:p-5 text-gray-700 bg-gray-100 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-300">
-            
-            <div x-show="showSuggestions" class="absolute w-full mt-2 bg-white border border-gray-300 rounded-xl shadow-lg z-10" x-transition>
-                <template x-for="addr in filteredSuggestions" :key="addr">
-                    <div x-on:click="selectSuggestion(addr)" class="p-3 cursor-pointer hover:bg-gray-100 rounded-xl transition duration-200" x-text="addr"></div>
+        {{-- Paso 1: ciudad --}}
+        <div class="w-full relative text-left">
+            <label for="ciudad" class="block text-sm font-semibold text-gray-700 mb-1">1. City</label>
+            <input id="ciudad" x-model="ciudadQuery" x-on:input="buscarCiudad()"
+                   x-on:click.outside="mostrarSugerencias = false"
+                   type="text" autocomplete="off" placeholder="Start typing a city, e.g. Rosario…"
+                   class="w-full p-4 text-gray-700 bg-gray-100 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-300">
+
+            <div x-show="mostrarSugerencias && sugerencias.length" x-transition x-cloak
+                 class="absolute w-full mt-2 bg-white border border-gray-300 rounded-xl shadow-lg z-10 overflow-hidden">
+                <template x-for="c in sugerencias" :key="c.id">
+                    <div x-on:click="elegirCiudad(c)"
+                         class="p-3 cursor-pointer hover:bg-gray-100 transition duration-200 flex justify-between items-center gap-3">
+                        <span>
+                            <span class="font-medium text-gray-800" x-text="c.nombre"></span>
+                            <span class="text-sm text-gray-500" x-text="`${c.provincia}, ${c.pais}`"></span>
+                        </span>
+                        <span x-show="c.capital"
+                              class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full shrink-0">capital</span>
+                    </div>
                 </template>
             </div>
-            
-            <button x-on:click="search()" class="w-full mt-4 p-4 md:p-5 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition duration-300 shadow-md hover:shadow-lg">
-                Find Address
-            </button>
+
+            <p x-show="ciudadQuery.length >= 2 && !mostrarSugerencias && !hayCiudad && !cargando" x-cloak
+               class="text-sm text-gray-500 mt-2">No cities matched that name.</p>
         </div>
 
-        <div x-show="showResults" class="w-full mt-12 text-left" x-transition>
+        {{-- Paso 2: calle dentro de la ciudad --}}
+        <div x-show="hayCiudad" x-transition x-cloak class="w-full mt-6 text-left">
+            <div class="flex items-baseline justify-between mb-1">
+                <label for="calle" class="block text-sm font-semibold text-gray-700">2. Street</label>
+                <button x-on:click="limpiar()" class="text-sm text-blue-600 hover:underline">Change city</button>
+            </div>
+
+            <div class="flex gap-3">
+                <input id="calle" x-model="calleQuery" x-on:input="buscarCalle()"
+                       type="text" autocomplete="off" placeholder="Street name…"
+                       class="flex-1 min-w-0 p-4 text-gray-700 bg-gray-100 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-300">
+                <input x-model="altura" type="text" inputmode="numeric" placeholder="No."
+                       class="w-24 p-4 text-gray-700 bg-gray-100 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-300">
+            </div>
+
+            <p class="text-sm text-gray-500 mt-2">
+                <span x-text="totalCalles.toLocaleString()"></span> streets on record for
+                <span class="font-medium" x-text="ciudad.nombre"></span>.
+                <span x-show="!calleQueryAplicada">Showing the most searched ones.</span>
+            </p>
+        </div>
+
+        <p x-show="error" x-cloak x-text="error"
+           class="mt-4 text-left text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl p-3"></p>
+
+        {{-- Resultados --}}
+        <div x-show="hayCiudad" x-cloak class="w-full mt-8 text-left" x-transition>
             <h2 class="text-2xl font-bold text-gray-900 mb-6">Search Results</h2>
+
             <div class="bg-gray-50 p-6 rounded-xl border border-gray-200">
-                <div x-show="isLoading" class="flex flex-col items-center justify-center py-8">
+                <div x-show="cargando" class="flex flex-col items-center justify-center py-8">
                     <svg class="animate-spin h-8 w-8 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                    <p class="text-lg text-gray-600 mt-4">Searching for address...</p>
+                    <p class="text-lg text-gray-600 mt-4">Searching…</p>
                 </div>
 
-                <template x-if="searchResults && searchResults.found">
-                    <div class="flex flex-col items-center text-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-green-500 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <p class="text-xl font-bold text-gray-800 mb-2">Address Found!</p>
-                        <p class="text-lg text-gray-600 mb-4" x-text="searchResults.address"></p>
-                        <div class="w-full h-64 rounded-xl bg-gray-300 flex items-center justify-center overflow-hidden">
-                            <p class="text-gray-500 font-bold">Map Placeholder</p>
+                <div x-show="!cargando">
+                    <template x-if="calleElegida">
+                        <div class="mb-6 pb-6 border-b border-gray-200">
+                            <div class="flex items-start gap-3">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <div>
+                                    <p class="text-lg font-bold text-gray-800" x-text="direccionCompleta"></p>
+                                    <a :href="osmUrl" target="_blank" rel="noopener noreferrer"
+                                       class="text-sm text-blue-600 hover:underline">Open in OpenStreetMap →</a>
+                                </div>
+                            </div>
                         </div>
-                        <p class="text-sm text-gray-500 mt-4">Note: This is a simulated result. The real service would show an interactive map.</p>
-                    </div>
-                </template>
+                    </template>
 
-                <template x-if="searchResults && !searchResults.found">
-                    <div class="flex flex-col items-center text-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-red-500 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <p class="text-xl font-bold text-gray-800 mb-2">Address Not Found</p>
-                        <p class="text-lg text-gray-600">We could not find a match for "<span x-text="searchQuery"></span>". Please check the spelling or try a different address.</p>
+                    <template x-if="calles.length">
+                        <div>
+                            <h3 class="font-semibold text-gray-800 mb-3"
+                                x-text="calleQueryAplicada ? 'Matching streets' : 'Most searched streets'"></h3>
+                            <ul class="divide-y divide-gray-200">
+                                <template x-for="c in calles" :key="c.nombre">
+                                    <li x-on:click="elegirCalle(c.nombre)"
+                                        class="py-2 flex justify-between items-center gap-3 cursor-pointer hover:bg-gray-100 rounded px-2 -mx-2">
+                                        <span class="text-gray-700" x-text="c.nombre"></span>
+                                        <span class="text-xs text-gray-500 shrink-0"
+                                              x-text="`${c.busquedas.toLocaleString()} searches`"></span>
+                                    </li>
+                                </template>
+                            </ul>
+                        </div>
+                    </template>
+
+                    <template x-if="!calles.length && calleQueryAplicada">
+                        <p class="text-gray-600">No street matched "<span x-text="calleQueryAplicada"></span>" in <span x-text="ciudad.nombre"></span>.</p>
+                    </template>
+
+                    <div class="w-full h-64 rounded-xl overflow-hidden border border-gray-200 mt-6">
+                        <iframe :src="mapaUrl" class="w-full h-full" style="border:0" loading="lazy"
+                                referrerpolicy="no-referrer-when-downgrade" title="Map"></iframe>
                     </div>
-                </template>
+                </div>
             </div>
+
             <div class="ad-placeholder">
                 Anuncio de contenido (300x250)
             </div>
@@ -83,7 +142,7 @@
                     <h3 class="font-semibold text-gray-800 text-lg">Your Privacy, Our Priority</h3>
                     <p class="text-sm text-gray-600 mt-1 text-center">We do not request personal data or save your search history. Your information is secure and private.</p>
                 </div>
-                
+
                 <div class="flex flex-col items-center bg-gray-50 p-6 rounded-xl border border-gray-200">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-blue-600 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -102,7 +161,7 @@
                 </div>
             </div>
         </div>
-        
+
         <div class="mt-12 text-left">
             <h2 class="text-2xl font-bold text-gray-900 mb-6">
                 Frequently Asked Questions

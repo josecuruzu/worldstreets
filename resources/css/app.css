@@ -2,6 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Evita el parpadeo de los bloques x-show antes de que Alpine arranque. */
+[x-cloak] {
+    display: none !important;
+}
+
 .ad-placeholder {
     min-height: 100px;
     background-color: #e5e7eb;
