@@ -129,7 +129,7 @@ class BuscadorController extends Controller
         ]);
 
         // Los datos importados usan el guion como separador en algunas calles.
-        $nombreCalle = trim(str_replace('-', ' ', $datos['nombre_calle']));
+        $nombreCalle = Busqueda::limpiar(str_replace('-', ' ', $datos['nombre_calle']));
         $compacto = Busqueda::compactar($nombreCalle);
 
         if ($compacto === '') {

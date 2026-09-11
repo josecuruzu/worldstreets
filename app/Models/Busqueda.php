@@ -49,4 +49,30 @@ class Busqueda extends Model
     {
         return str_replace(' ', '', $nombreCalle);
     }
+
+    /**
+     * Deja el nombre de calle listo para guardar.
+     *
+     * Los datos importados traen algunos restos de lo que la gente pegó en el
+     * buscador viejo: caracteres de control, un BOM suelto, espacios dobles y
+     * acentos en forma descompuesta. Nada de eso se ve, pero ensucia el
+     * ranking y hace que la misma calle se vea escrita distinto.
+     */
+    public static function limpiar(string $nombreCalle): string
+    {
+        // Controles C0/C1, BOM y caracteres de ancho cero.
+        $limpio = preg_replace(
+            '/[\x{0000}-\x{001F}\x{007F}-\x{009F}\x{200B}-\x{200F}\x{FEFF}]/u',
+            '',
+            $nombreCalle
+        );
+
+        $limpio = preg_replace('/\s+/u', ' ', $limpio);
+
+        // A forma compuesta, para que un "José" tecleado con acento combinante
+        // quede byte a byte igual al "José" precompuesto que trajo el import.
+        $limpio = \Normalizer::normalize($limpio, \Normalizer::FORM_C) ?: $limpio;
+
+        return trim($limpio);
+    }
 }

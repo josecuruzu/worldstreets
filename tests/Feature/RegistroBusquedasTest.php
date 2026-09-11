@@ -140,6 +140,41 @@ class RegistroBusquedasTest extends TestCase
         $this->assertSame(1, Busqueda::count());
     }
 
+    public function test_limpia_los_caracteres_invisibles_del_nombre(): void
+    {
+        // Un BOM adelante, un carácter de control en el medio, espacios de más
+        // y un acento descompuesto: todo lo que el buscador viejo dejó entrar.
+        $sucio = "\u{FEFF}Av  San\u{0011} Marti\u{0301}n ";
+
+        $this->postJson('/api/busquedas', [
+            'ciudad_id' => self::CIUDAD_ID,
+            'nombre_calle' => $sucio,
+        ])->assertNoContent();
+
+        $busqueda = Busqueda::sole();
+
+        $this->assertSame('Av San Martín', $busqueda->nombre_calle);
+        $this->assertSame('AvSanMartín', $busqueda->nombre_calle_compacto);
+    }
+
+    public function test_un_nombre_que_es_solo_basura_invisible_no_se_guarda(): void
+    {
+        /*
+         * Acá no llega ni a `limpiar()`: el TrimStrings de Laravel ya recorta
+         * BOM y caracteres de ancho cero, así que el campo queda vacío y lo
+         * frena `required`. Se deja fijado porque es el comportamiento que
+         * queremos — un 422, no una fila en blanco.
+         */
+        $this->postJson('/api/busquedas', [
+            'ciudad_id' => self::CIUDAD_ID,
+            'nombre_calle' => "\u{FEFF}\u{200B}",
+        ])->assertStatus(422)->assertJsonValidationErrors('nombre_calle');
+
+        $this->assertSame(0, Busqueda::count());
+        // Tampoco cuenta como visita a la ciudad.
+        $this->assertSame(100, (int) DB::table('ciudades')->where('id', self::CIUDAD_ID)->value('visitas'));
+    }
+
     public function test_rechaza_una_ciudad_que_no_existe(): void
     {
         $this->postJson('/api/busquedas', ['ciudad_id' => 999999, 'nombre_calle' => 'san martin'])
