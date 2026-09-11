@@ -45,7 +45,6 @@ class Ciudad extends Model
         'admin2',
         'admin3',
         'admin4',
-        'clase',
         'provincia_id',
         'departamento_id',
         'population',

@@ -225,10 +225,6 @@ class ImportarArgentina extends Command
                     'admin2' => $departamento ?: null,
                     'admin3' => null,
                     'admin4' => null,
-                    // TODO: worldstreets agregó "clase" y no existe en el
-                    // origen ni está definida su semántica. Se copia fcode
-                    // para no dejar la columna NOT NULL vacía.
-                    'clase' => $c->tipo,
                     'provincia_id' => (string) $c->provincia_id,
                     'departamento_id' => $departamento,
                     'population' => null,

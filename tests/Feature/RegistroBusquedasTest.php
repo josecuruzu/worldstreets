@@ -49,7 +49,6 @@ class RegistroBusquedasTest extends TestCase
             'pais_id' => 'AR',
             'provincia_id' => 'AR.21',
             'departamento_id' => '82084',
-            'clase' => 'PPLA2',
             'centro_x' => -32.94682,
             'centro_y' => -60.63932,
             'limite_sw_x' => -33.0, 'limite_sw_y' => -60.7,
