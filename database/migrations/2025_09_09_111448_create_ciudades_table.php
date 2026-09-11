@@ -41,7 +41,22 @@ class CreateCiudadesTable extends Migration
             $table->string('timezone', 40)->nullable();
             $table->date('moddate')->nullable();
             $table->integer('visitas')->default(0);
-            $table->timestamp('updated_at')->default(DB::raw('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'));
+            /*
+             * `ON UPDATE CURRENT_TIMESTAMP` es sintaxis de MySQL y SQLite la
+             * rechaza, lo que rompía toda la suite de tests al crear la tabla.
+             * Se bifurca por driver: en MySQL el SQL generado es idéntico al de
+             * antes, así que la base ya migrada no se ve afectada; en SQLite se
+             * cae al CURRENT_TIMESTAMP a secas, que es lo más cercano que hay
+             * (el auto-update no existe). El modelo tiene $timestamps = false,
+             * así que de esta columna se encarga la base, no Eloquent.
+             */
+            $columna = $table->timestamp('updated_at');
+
+            if (Schema::getConnection()->getDriverName() === 'mysql') {
+                $columna->default(DB::raw('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'));
+            } else {
+                $columna->useCurrent();
+            }
 
             $table->primary('id');
         });

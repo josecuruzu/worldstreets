@@ -27,9 +27,20 @@ class RegistroBusquedasTest extends TestCase
     {
         parent::setUp();
 
-        DB::table('continentes')->insert(['id' => 'SA', 'nombre' => 'South America']);
-        DB::table('paises')->insert(['id' => 'AR', 'nombre' => 'Argentina', 'continente_id' => 'SA']);
-        DB::table('provincias')->insert(['id' => 'AR.21', 'nombre' => 'Santa Fe', 'pais_id' => 'AR']);
+        // Estas tablas heredaron de GeoNames un montón de columnas NOT NULL sin
+        // default, así que la jerarquía mínima igual pide bastante relleno.
+        DB::table('continentes')->insert([
+            'id' => 'SA', 'nombre' => 'South America', 'url' => 'south-america',
+            'centro_x' => -14.0, 'centro_y' => -57.0, 'zoom' => 3, 'descripcion' => '',
+        ]);
+        DB::table('paises')->insert([
+            'id' => 'AR', 'nombre' => 'Argentina', 'url' => 'argentina', 'continente_id' => 'SA',
+            'centro_x' => -38.4, 'centro_y' => -63.6, 'zoom' => 4,
+        ]);
+        DB::table('provincias')->insert([
+            'id' => 'AR.21', 'nombre' => 'Santa Fe', 'url' => 'santa-fe', 'pais_id' => 'AR',
+            'centro_x' => -31.6, 'centro_y' => -60.7,
+        ]);
         DB::table('ciudades')->insert([
             'id' => self::CIUDAD_ID,
             'nombre' => 'Rosario',
@@ -37,8 +48,13 @@ class RegistroBusquedasTest extends TestCase
             'url' => 'rosario-santa-fe',
             'pais_id' => 'AR',
             'provincia_id' => 'AR.21',
+            'departamento_id' => '82084',
+            'clase' => 'PPLA2',
             'centro_x' => -32.94682,
             'centro_y' => -60.63932,
+            'limite_sw_x' => -33.0, 'limite_sw_y' => -60.7,
+            'limite_ne_x' => -32.9, 'limite_ne_y' => -60.6,
+            'zoom' => 13,
             'visitas' => 100,
         ]);
     }
