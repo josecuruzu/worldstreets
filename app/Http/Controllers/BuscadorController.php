@@ -6,7 +6,9 @@ use App\Models\Busqueda;
 use App\Models\Ciudad;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /*
@@ -73,7 +75,7 @@ class BuscadorController extends Controller
     {
         $q = trim((string) $request->query('q', ''));
 
-        $clave = "buscador.calles.{$ciudad->id}.".md5($q);
+        $clave = self::claveCalles($ciudad->id, $q);
 
         $calles = Cache::remember($clave, now()->addMinutes(15), function () use ($ciudad, $q) {
             $query = $q === ''
@@ -106,5 +108,88 @@ class BuscadorController extends Controller
             ],
             'calles' => $calles,
         ]);
+    }
+
+    /**
+     * Registra que alguien buscó una calle: suma uno a su contador, o la da de
+     * alta si es la primera vez. Es lo que mantiene vivo el ranking que sirve
+     * `calles()`; hasta ahora la tabla solo tenía lo que vino del import.
+     *
+     * Guarda el nombre de la calle y la ciudad, nada más: ni IP, ni usuario,
+     * ni la altura que el visitante haya tipeado.
+     *
+     * POST /api/busquedas
+     */
+    public function registrar(Request $request): Response
+    {
+        $datos = $request->validate([
+            'ciudad_id' => ['required', 'integer', 'exists:ciudades,id'],
+            'nombre_calle' => ['required', 'string', 'max:255'],
+        ]);
+
+        // Los datos importados usan el guion como separador en algunas calles.
+        $nombreCalle = trim(str_replace('-', ' ', $datos['nombre_calle']));
+        $compacto = Busqueda::compactar($nombreCalle);
+
+        if ($compacto === '') {
+            return response()->noContent();
+        }
+
+        $ciudadId = (int) $datos['ciudad_id'];
+
+        /*
+         * Deduplicación por sesión: si el visitante vuelve sobre la misma calle
+         * de la misma ciudad, no cuenta de nuevo. Sin esto cada tecleo o cada
+         * F5 inflaría el ranking.
+         */
+        $claveSesion = "busqueda.{$ciudadId}.".md5($compacto);
+
+        if ($request->session()->has($claveSesion)) {
+            return response()->noContent();
+        }
+
+        $request->session()->put($claveSesion, true);
+
+        DB::transaction(function () use ($ciudadId, $nombreCalle, $compacto) {
+            /*
+             * El import dejó 84 grupos de filas que colisionan en
+             * (ciudad_id, nombre_calle_compacto) — venían duplicadas del origen.
+             * Ordenar por cantidad_busquedas hace que se incremente siempre la
+             * dominante y no una al azar, mientras no se unifiquen.
+             */
+            $busqueda = Busqueda::where('ciudad_id', $ciudadId)
+                ->where('nombre_calle_compacto', $compacto)
+                ->orderByDesc('cantidad_busquedas')
+                ->first();
+
+            if ($busqueda) {
+                $busqueda->increment('cantidad_busquedas');
+            } else {
+                Busqueda::create([
+                    'ciudad_id' => $ciudadId,
+                    'nombre_calle' => $nombreCalle,
+                    'nombre_calle_compacto' => $compacto,
+                    'cantidad_busquedas' => 1,
+                ]);
+            }
+
+            Ciudad::whereKey($ciudadId)->increment('visitas');
+        });
+
+        /*
+         * El ranking que se acaba de mover es el que devuelve `calles()` sin
+         * término, así que esa entrada queda vieja. Las de búsquedas con
+         * término no se pueden invalidar: son una por término tipeado y el
+         * store `database` no soporta tags. Vencen solas a los 15 minutos.
+         */
+        Cache::forget(self::claveCalles($ciudadId, ''));
+
+        return response()->noContent();
+    }
+
+    /** Clave de caché del listado de calles. Compartida para que no se desfase. */
+    private static function claveCalles(int $ciudadId, string $q): string
+    {
+        return "buscador.calles.{$ciudadId}.".md5($q);
     }
 }

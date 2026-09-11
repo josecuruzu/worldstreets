@@ -140,7 +140,7 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                     </svg>
                     <h3 class="font-semibold text-gray-800 text-lg">Your Privacy, Our Priority</h3>
-                    <p class="text-sm text-gray-600 mt-1 text-center">We do not request personal data or save your search history. Your information is secure and private.</p>
+                    <p class="text-sm text-gray-600 mt-1 text-center">We never ask for personal data and we keep no search history tied to you &mdash; only an anonymous count of how often each street is looked up.</p>
                 </div>
 
                 <div class="flex flex-col items-center bg-gray-50 p-6 rounded-xl border border-gray-200">
@@ -180,7 +180,7 @@
                 </div>
                 <div class="bg-gray-50 p-6 rounded-xl border border-gray-200">
                     <h3 class="font-semibold text-gray-800 text-lg mb-2">How do you ensure user privacy?</h3>
-                    <p class="text-sm text-gray-600">We take your privacy very seriously. We do not store your search queries, IP addresses, or any personal information. All searches are processed anonymously to ensure your data is never compromised.</p>
+                    <p class="text-sm text-gray-600">We take your privacy very seriously. We never ask for personal information and we do not store your IP address. Two things are recorded: an anonymous tally of how many times each street has been looked up in each city &mdash; that is what powers the &ldquo;most searched streets&rdquo; list &mdash; and, for the length of your visit only, which streets you already looked up, so the same search is not counted twice. Neither is linked to an account or to you.</p>
                 </div>
             </div>
         </div>

@@ -165,9 +165,37 @@ document.addEventListener('alpine:init', () => {
             this.calleElegida = nombre;
             this.calleQuery = nombre;
 
+            this._registrar(nombre);
+
             // Sin esto la lista queda mostrando el top de la ciudad mientras
             // el encabezado ya dice que son las coincidencias del término.
             this.cargarCalles();
+        },
+
+        /**
+         * Le avisa al backend que se buscó esta calle, para que sume al
+         * ranking. Va suelto a propósito: no se espera la respuesta y un fallo
+         * no se le muestra al usuario, porque no afecta lo que está viendo.
+         *
+         * El backend deduplica por sesión, así que repetir la misma calle en
+         * la misma visita no cuenta de nuevo.
+         */
+        _registrar(nombre) {
+            const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
+            if (!csrf || !this.ciudad) return;
+
+            fetch('/api/busquedas', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json',
+                    'X-CSRF-TOKEN': csrf,
+                },
+                body: JSON.stringify({
+                    ciudad_id: this.ciudad.id,
+                    nombre_calle: nombre,
+                }),
+            }).catch(() => {});
         },
 
         limpiar() {

@@ -13,15 +13,7 @@ class Busqueda extends Model
 
     protected $table = 'busquedas';
 
-    // OJO: la migración define id como integer sin auto_increment, así que
-    // hoy esta tabla es de solo lectura desde la app — los ids vinieron del
-    // import. Para registrar búsquedas nuevas hay que hacerla autoincremental.
-    public $incrementing = false;
-
-    protected $primaryKey = 'id';
-
     protected $fillable = [
-        'id',
         'ciudad_id',
         'nombre_calle',
         'nombre_calle_compacto',

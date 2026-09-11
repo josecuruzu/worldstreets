@@ -22,6 +22,16 @@ Route::get('/api/ciudades/{ciudad}/calles', [BuscadorController::class, 'calles'
     ->whereNumber('ciudad')
     ->middleware('throttle:120,1');
 
+/*
+| Este sí muta: suma uno al contador de la calle buscada. Va por POST, con el
+| CSRF y la sesión del grupo `web` (la sesión es lo que evita contar dos veces
+| la misma búsqueda). Throttle más corto que los de lectura porque no lo
+| dispara el tecleo sino la elección de una calle.
+*/
+Route::post('/api/busquedas', [BuscadorController::class, 'registrar'])
+    ->name('api.busquedas.registrar')
+    ->middleware('throttle:30,1');
+
 Route::get('/dashboard', function () {
     return view('dashboard');
 })->middleware(['auth', 'verified'])->name('dashboard');
