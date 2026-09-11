@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Busqueda;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -105,6 +106,38 @@ class RegistroBusquedasTest extends TestCase
         $this->assertSame(1, Busqueda::firstWhere('nombre_calle_compacto', 'sanmartin')->cantidad_busquedas);
         // La visita tampoco se cuenta dos veces.
         $this->assertSame(101, (int) DB::table('ciudades')->where('id', self::CIUDAD_ID)->value('visitas'));
+    }
+
+    public function test_el_indice_unico_impide_duplicar_una_calle(): void
+    {
+        /*
+         * Fija el contrato del que depende el catch de `registrar()`: con el
+         * índice de 2026_09_11_110000 puesto, dar de alta dos veces la misma
+         * calle tira UniqueConstraintViolationException en vez de dejar una
+         * fila repetida. Eso es lo que pasa cuando dos peticiones simultáneas
+         * pasan las dos por el select que no la encuentra.
+         *
+         * Verifica la excepción y el índice, no el catch en sí: forzar esa
+         * ventana desde un test de integración pediría concurrencia real, y el
+         * cuerpo del catch es el mismo increment que ya cubre
+         * `una_calle_ya_registrada_suma_en_vez_de_duplicar`.
+         */
+        DB::table('busquedas')->insert([
+            'ciudad_id' => self::CIUDAD_ID,
+            'nombre_calle' => 'san martin',
+            'nombre_calle_compacto' => 'sanmartin',
+            'cantidad_busquedas' => 1,
+        ]);
+
+        $duplicado = fn () => Busqueda::create([
+            'ciudad_id' => self::CIUDAD_ID,
+            'nombre_calle' => 'san martin',
+            'nombre_calle_compacto' => 'sanmartin',
+            'cantidad_busquedas' => 1,
+        ]);
+
+        $this->assertThrows($duplicado, UniqueConstraintViolationException::class);
+        $this->assertSame(1, Busqueda::count());
     }
 
     public function test_rechaza_una_ciudad_que_no_existe(): void

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Busqueda;
 use App\Models\Ciudad;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -151,26 +152,28 @@ class BuscadorController extends Controller
         $request->session()->put($claveSesion, true);
 
         DB::transaction(function () use ($ciudadId, $nombreCalle, $compacto) {
-            /*
-             * El import dejó 84 grupos de filas que colisionan en
-             * (ciudad_id, nombre_calle_compacto) — venían duplicadas del origen.
-             * Ordenar por cantidad_busquedas hace que se incremente siempre la
-             * dominante y no una al azar, mientras no se unifiquen.
-             */
-            $busqueda = Busqueda::where('ciudad_id', $ciudadId)
-                ->where('nombre_calle_compacto', $compacto)
-                ->orderByDesc('cantidad_busquedas')
-                ->first();
+            $existente = fn () => Busqueda::where('ciudad_id', $ciudadId)
+                ->where('nombre_calle_compacto', $compacto);
 
-            if ($busqueda) {
+            if ($busqueda = $existente()->first()) {
                 $busqueda->increment('cantidad_busquedas');
             } else {
-                Busqueda::create([
-                    'ciudad_id' => $ciudadId,
-                    'nombre_calle' => $nombreCalle,
-                    'nombre_calle_compacto' => $compacto,
-                    'cantidad_busquedas' => 1,
-                ]);
+                try {
+                    Busqueda::create([
+                        'ciudad_id' => $ciudadId,
+                        'nombre_calle' => $nombreCalle,
+                        'nombre_calle_compacto' => $compacto,
+                        'cantidad_busquedas' => 1,
+                    ]);
+                } catch (UniqueConstraintViolationException) {
+                    /*
+                     * Otra petición dio de alta la misma calle entre el select
+                     * y el insert. Con el índice único (2026_09_11_110000) eso
+                     * ahora es un error en vez de una fila duplicada, así que
+                     * se resuelve como lo que era: una búsqueda más.
+                     */
+                    $existente()->increment('cantidad_busquedas');
+                }
             }
 
             Ciudad::whereKey($ciudadId)->increment('visitas');
