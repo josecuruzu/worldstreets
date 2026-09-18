@@ -31,7 +31,16 @@ class HomeTest extends TestCase
             ->assertSee('2 countries', false);
     }
 
-    public function test_ya_no_se_presenta_como_un_sitio_argentino(): void
+    /**
+     * El alcance es global. El proyecto nació como la versión mundial de
+     * calles-argentinas y la home arrastraba ese encuadre; hoy el mercado
+     * elegido es el anglo, que es el 83,1% de los ingresos.
+     *
+     * No se asienta sobre el titular concreto —eso es copy y cambia— sino
+     * sobre lo que la página promete: cuántos países cubre y que no se
+     * presenta como un sitio de un país.
+     */
+    public function test_se_presenta_con_alcance_global(): void
     {
         $this->crearPais('AR', 'Argentina');
         $this->crearCiudad(1, 'Rosario', 'AR');
@@ -39,7 +48,36 @@ class HomeTest extends TestCase
         $respuesta = $this->get('/')->assertOk();
 
         $respuesta->assertDontSee('Address Finder for Argentina');
-        $respuesta->assertSee('Address Finder Worldwide');
+        $respuesta->assertSee('countries');
+    }
+
+    /**
+     * "Reverse address lookup" es el 73% de los clics del sitio. Describe lo
+     * contrario de lo que el producto hace —de calle a mapa, no de dirección a
+     * persona— y aun así no se toca: lo que hay que hacer es que la página
+     * entregue algo real para esa consulta.
+     */
+    public function test_el_titulo_conserva_la_frase_que_trae_el_trafico(): void
+    {
+        $this->get('/')
+            ->assertOk()
+            ->assertSee('Reverse Address Lookup', false);
+    }
+
+    /**
+     * Fuera el FAQ genérico, "Why Use Our Address Finder" y "Our Commitment to
+     * You". Y de paso se va la afirmación del FAQ de que no se guarda la IP,
+     * que era falsa: `SESSION_DRIVER=database` y la tabla `sessions` tiene la
+     * columna cargada.
+     */
+    public function test_no_quedan_los_bloques_de_relleno(): void
+    {
+        $respuesta = $this->get('/')->assertOk();
+
+        $respuesta->assertDontSee('Why Use Our Address Finder');
+        $respuesta->assertDontSee('Our Commitment to You');
+        $respuesta->assertDontSee('Frequently Asked Questions');
+        $respuesta->assertDontSee('we do not store your IP address');
     }
 
     private function crearPais(string $id, string $nombre): void

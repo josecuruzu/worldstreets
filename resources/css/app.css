@@ -2,22 +2,98 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Evita el parpadeo de los bloques x-show antes de que Alpine arranque. */
-[x-cloak] {
-    display: none !important;
+@layer base {
+    /*
+     * Inter con su set de caracteres alternativo. Es lo que le da al texto el
+     * aire levemente geométrico del sistema; sin esto la tipografía queda
+     * correcta pero genérica.
+     */
+    html {
+        font-feature-settings: "cv02", "cv03", "cv04", "cv06", "cv11";
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+    }
+
+    /*
+     * Los enlaces van en Deep Violet y no en Slate Lavender, que es lo que
+     * dice la tabla de DESIGN.md: el lavanda da ~2,6:1 sobre el crema y no
+     * llega ni a AA. El lavanda se queda con los bordes.
+     */
+    a {
+        @apply text-violet;
+    }
+
+    a:hover {
+        text-decoration: underline;
+    }
 }
 
-.ad-placeholder {
-    min-height: 100px;
-    background-color: #e5e7eb;
-    border: 1px dashed #9ca3af;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    font-size: 14px;
-    color: #6b7280;
-    margin-top: 1.5rem;
-    margin-bottom: 1.5rem;
-    border-radius: 0.75rem;
+@layer components {
+    /*
+     * El ancho de la página. Va por sección y no en un <main> envolvente: el
+     * hero de la home es full-bleed, y para sacarlo de un contenedor había que
+     * recurrir a `calc(50% - 50vw)`, que suma el ancho de la barra de scroll y
+     * deja ~8px de scroll horizontal — variable según la plataforma.
+     *
+     * Con el ancho por sección, lo que es full-bleed simplemente no lleva esta
+     * clase.
+     */
+    .contenedor {
+        @apply mx-auto w-full max-w-page px-4 sm:px-8;
+    }
+
+    /*
+     * Los tres botones del sistema. El periwinkle es para UNA acción por
+     * pantalla: es el momento de mayor contraste contra el crema y pierde todo
+     * su valor si se repite.
+     */
+    .btn {
+        @apply inline-flex items-center justify-center gap-2 rounded-pill text-body font-label transition;
+    }
+
+    .btn-primary {
+        @apply btn bg-periwinkle px-6 py-3.5 text-paper hover:bg-[#3f63dc];
+    }
+
+    .btn-dark {
+        @apply btn bg-carbon px-6 py-3.5 text-paper hover:bg-[#1b1917];
+    }
+
+    .btn-ghost {
+        /* 1px menos de padding para compensar el borde y que los tres botones
+           midan lo mismo puestos en fila. */
+        @apply btn border border-lavender px-[23px] py-[13px] text-ink hover:bg-paper;
+    }
+
+    /* La tarjeta blanca: el borde de 1px es el filo principal, no la sombra. */
+    .card {
+        @apply rounded-card border border-mist bg-paper p-6;
+    }
+
+    .field {
+        @apply w-full rounded-field border-mist bg-paper text-body text-iron placeholder:text-ash
+               focus:border-periwinkle focus:ring-2 focus:ring-periwinkle/40;
+    }
+
+    /* La píldora de etiqueta: el borde lavanda es lo que la identifica. */
+    .tag {
+        @apply inline-flex items-center rounded-card border border-lavender px-3 py-1 text-cap text-ink;
+    }
+
+    /*
+     * El cuadradito de la barra A–Z. 44px de lado no es decorativo: es el
+     * mínimo táctil, y el 76% del tráfico es móvil.
+     */
+    .az {
+        @apply inline-flex h-11 w-11 items-center justify-center rounded-card border border-mist
+               text-cap text-ink transition hover:border-lavender hover:bg-paper;
+    }
+
+    .az-vacia {
+        @apply az border-dashed text-ash hover:border-mist hover:bg-transparent;
+    }
+
+    .eyebrow {
+        @apply text-cap font-label uppercase tracking-[0.06em] text-ash;
+    }
 }

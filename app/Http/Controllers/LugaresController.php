@@ -8,6 +8,7 @@ use App\Models\Pais;
 use App\Models\Provincia;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
 /*
@@ -27,6 +28,9 @@ class LugaresController extends Controller
 {
     /** Ciudades por página en la ficha de provincia. */
     private const POR_PAGINA = 60;
+
+    /** Otras ciudades de la región que se enlazan al pie de una ficha. */
+    private const VECINAS = 6;
 
     /** Ciudades destacadas en la ficha de país. */
     private const DESTACADAS = 12;
@@ -57,7 +61,45 @@ class LugaresController extends Controller
             'pais' => $pais,
             'provincias' => $provincias,
             'destacadas' => $destacadas,
-        ]);
+        ] + Cache::remember(
+            "lugar.pais.{$pais->id}.cifras",
+            now()->addDay(),
+            fn () => $this->cifrasDelPais($pais)
+        ));
+    }
+
+    /**
+     * Las cifras que encabezan la ficha de país y la ciudad mejor cubierta.
+     *
+     * Son las que le dicen al visitante si su lugar va a aparecer: el dataset
+     * tiene 4.697.141 ciudades y 18.361 con alguna calle, así que "13.247
+     * ciudades" sin más contexto promete lo que no hay.
+     *
+     * @return array{ciudadesConCalles: int, callesDelPais: int, mejorCubierta: ?object}
+     */
+    private function cifrasDelPais(Pais $pais): array
+    {
+        $porCiudad = DB::table('busquedas as b')
+            ->join('ciudades as c', function ($join) use ($pais) {
+                $join->on('c.id', '=', 'b.ciudad_id')->where('c.pais_id', '=', $pais->id);
+            })
+            ->selectRaw('b.ciudad_id, count(*) as calles')
+            ->groupBy('b.ciudad_id')
+            ->orderByDesc('calles')
+            ->get();
+
+        $mejor = $porCiudad->first();
+
+        return [
+            'ciudadesConCalles' => $porCiudad->count(),
+            'callesDelPais' => (int) $porCiudad->sum('calles'),
+            'mejorCubierta' => $mejor
+                ? (object) [
+                    'ciudad' => Ciudad::with('provincia:id,nombre')->find($mejor->ciudad_id),
+                    'calles' => (int) $mejor->calles,
+                ]
+                : null,
+        ];
     }
 
     public function provincia(string $pais, string $provincia): View
@@ -143,10 +185,28 @@ class LugaresController extends Controller
         // CALLES_POR_LETRA pero sabe cuántas tiene.
         $total = $indice->sum(fn (array $grupo) => $grupo['total']);
 
+        /*
+         * Otras ciudades de la misma región, para que la ficha no sea un
+         * callejón sin salida. Solo las que tienen página: enlazar a una que
+         * responde 410 manda al visitante y al rastreador contra una pared.
+         */
+        $vecinas = Cache::remember(
+            "lugar.ciudad.{$modelo->id}.vecinas",
+            now()->addDay(),
+            fn () => Ciudad::query()
+                ->where('provincia_id', $modelo->provincia_id)
+                ->whereKeyNot($modelo->id)
+                ->conCalles()
+                ->orderByDesc('population')
+                ->limit(self::VECINAS)
+                ->get(['id', 'nombre', 'alias', 'provincia_id'])
+        );
+
         return view('lugares.ciudad', [
             'ciudad' => $modelo,
             'indice' => $indice,
             'totalCalles' => $total,
+            'vecinas' => $vecinas,
             'nombresLocales' => $modelo->nombresLocales(),
         ]);
     }

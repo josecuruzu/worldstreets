@@ -1,219 +1,264 @@
 @extends('layouts.app')
 
+{{-- "Reverse address lookup" es el 73% de los clics del sitio. La frase se
+     queda en el <title> tal cual, aunque describa lo contrario de lo que el
+     producto hace: lo que conviene es que la página entregue algo real para
+     esa consulta, no cambiarle el nombre. --}}
 @section('title', 'Free Address Finder & Reverse Address Lookup')
 
 @section('content')
-    <div x-data="addressFinderApp()" class="bg-white rounded-2xl shadow-xl w-full max-w-2xl p-8 md:p-12 text-center my-8">
+    <div x-data="addressFinderApp()">
 
-        <h1 class="text-3xl md:text-4xl font-extrabold text-gray-900 mb-2">
-            Address Finder Worldwide
-        </h1>
-        <p class="text-gray-600 text-lg mb-8">
-            Search <strong class="font-bold text-gray-800">{{ number_format($ciudades) }} cities</strong> across <strong class="font-bold text-gray-800">{{ $paises }} countries</strong>. Our tool is the fastest, free, and <strong class="font-bold text-gray-800">completely anonymous</strong> way to perform a reverse address lookup.
-        </p>
+        {{--
+            El hero. El wash atmosférico va detrás del bloque centrado y se
+            desvanece hacia el crema, que es lo que hace que la página arranque
+            con aire en vez de con una caja.
+        --}}
+        {{-- Full-bleed sin trucos: el <main> ya no limita el ancho, así que el
+             wash llega a los bordes solo y el contenido de adentro se alinea
+             con el resto de la página por su propio .contenedor. --}}
+        <section class="pb-14 pt-6 text-center"
+                 style="
+                    background:
+                    radial-gradient(1100px 460px at 18% 6%, rgba(255,255,255,.9), rgba(255,255,255,0) 62%),
+                    radial-gradient(880px 400px at 80% 20%, rgba(206,222,197,.85), rgba(206,222,197,0) 66%),
+                    radial-gradient(1200px 560px at 50% 100%, #faf2ec, rgba(250,242,236,0) 72%),
+                    linear-gradient(172deg, #ccdbc3 0%, #e2e8d9 40%, #faf2ec 80%);">
+            <div class="contenedor">
 
-        <div class="ad-placeholder">
-            Anuncio adaptable (970x250, 728x90, 320x100)
-        </div>
+            <h1 class="mx-auto font-display text-[44px] leading-[1.08] [text-wrap:balance] sm:text-[64px] lg:text-display">
+                Find any street on earth.
+            </h1>
 
-        {{-- Paso 1: ciudad --}}
-        <div class="w-full relative text-left">
-            <label for="ciudad" class="block text-sm font-semibold text-gray-700 mb-1">1. City</label>
-            <input id="ciudad" x-model="ciudadQuery" x-on:input="buscarCiudad()"
-                   x-on:click.outside="mostrarSugerencias = false"
-                   {{-- Ejemplo de una ciudad con buena cobertura de calles (21.910), no de una argentina. --}}
-                   type="text" autocomplete="off" placeholder="Start typing a city, e.g. Cape Town…"
-                   class="w-full p-4 text-gray-700 bg-gray-100 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-300">
-
-            <div x-show="mostrarSugerencias && sugerencias.length" x-transition x-cloak
-                 class="absolute w-full mt-2 bg-white border border-gray-300 rounded-xl shadow-lg z-10 overflow-hidden">
-                <template x-for="c in sugerencias" :key="c.id">
-                    <div x-on:click="elegirCiudad(c)"
-                         class="p-3 cursor-pointer hover:bg-gray-100 transition duration-200 flex justify-between items-center gap-3">
-                        <span>
-                            <span class="font-medium text-gray-800" x-text="c.nombre"></span>
-                            <span class="text-sm text-gray-500" x-text="ubicacion(c.provincia, c.pais)"></span>
-                        </span>
-                        <span x-show="c.capital"
-                              class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full shrink-0">capital</span>
-                    </div>
-                </template>
-            </div>
-
-            <p x-show="ciudadQuery.length >= 2 && !mostrarSugerencias && !hayCiudad && !cargando" x-cloak
-               class="text-sm text-gray-500 mt-2">No cities matched that name.</p>
-        </div>
-
-        {{-- Paso 2: calle dentro de la ciudad --}}
-        <div x-show="hayCiudad" x-transition x-cloak class="w-full mt-6 text-left">
-            <div class="flex items-baseline justify-between mb-1">
-                <label for="calle" class="block text-sm font-semibold text-gray-700">2. Street</label>
-                <button x-on:click="limpiar()" class="text-sm text-blue-600 hover:underline">Change city</button>
-            </div>
-
-            <div class="flex gap-3">
-                <input id="calle" x-model="calleQuery" x-on:input="buscarCalle()"
-                       type="text" autocomplete="off" placeholder="Street name…"
-                       class="flex-1 min-w-0 p-4 text-gray-700 bg-gray-100 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-300">
-                <input x-model="altura" type="text" inputmode="numeric" placeholder="No."
-                       class="w-24 p-4 text-gray-700 bg-gray-100 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-300">
-            </div>
-
-            <p class="text-sm text-gray-500 mt-2">
-                {{-- Solo 18.361 de 4,7 M de ciudades tienen calles cargadas, así que el
-                     caso "todavía no hay ninguna" es el normal, no la excepción. --}}
-                <span x-show="totalCalles">
-                    <span x-text="totalCalles.toLocaleString()"></span> streets on record for
-                    <span class="font-medium" x-text="ciudad.nombre"></span>.
-                    <span x-show="!calleQueryAplicada">Showing the most searched ones.</span>
-                </span>
-                <span x-show="!totalCalles">
-                    No streets recorded yet for <span class="font-medium" x-text="ciudad.nombre"></span>. Yours would be the first.
-                </span>
+            <p class="mx-auto mt-6 max-w-[720px] text-sub [text-wrap:pretty]">
+                Start with the city, then the street. {{ number_format($ciudades) }} cities across
+                {{ $paises }} countries, and a street list written by the people who look them up.
             </p>
-        </div>
 
-        <p x-show="error" x-cloak x-text="error"
-           class="mt-4 text-left text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl p-3"></p>
+            {{-- Un solo campo a la vista: el de la ciudad. El de la calle
+                 aparece recién cuando hay una ciudad elegida, porque hasta
+                 entonces no hay nada donde buscarla. --}}
+            <div class="relative mx-auto mt-10 max-w-[720px] text-left">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+                    <label for="ciudad" class="sr-only">City</label>
+                    <div class="relative grow">
+                        <svg class="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2" viewBox="0 0 24 24"
+                             fill="none" stroke="#8f8f8f" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                            <circle cx="11" cy="11" r="7"></circle><path d="M16.2 16.2 21 21"></path>
+                        </svg>
+                        <input id="ciudad" x-model="ciudadQuery" x-on:input="buscarCiudad()"
+                               x-on:click.outside="mostrarSugerencias = false"
+                               type="text" autocomplete="off"
+                               {{-- Cape Town y no una ciudad argentina: es la de mejor
+                                    cobertura del dataset, con 21.910 calles limpias. --}}
+                               placeholder="Start with a city — Tokyo, Córdoba, Cape Town…"
+                               class="field py-3.5 pl-12">
+                    </div>
+                    <button type="button" x-on:click="buscarCiudad()" class="btn-dark shrink-0">Search</button>
+                </div>
 
-        {{-- Resultados --}}
-        <div x-show="hayCiudad" x-cloak class="w-full mt-8 text-left" x-transition>
-            <div class="flex items-baseline justify-between gap-4 flex-wrap mb-6">
-                <h2 class="text-2xl font-bold text-gray-900">Search Results</h2>
+                <div x-show="mostrarSugerencias && sugerencias.length" x-transition x-cloak
+                     class="absolute z-10 mt-2 w-full overflow-hidden rounded-card border border-mist bg-paper shadow-card">
+                    <template x-for="c in sugerencias" :key="c.id">
+                        <button type="button" x-on:click="elegirCiudad(c)"
+                                class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-cream">
+                            <span>
+                                <span class="font-label" x-text="c.nombre"></span>
+                                <span class="text-cap text-ash" x-text="ubicacion(c.provincia, c.pais)"></span>
+                            </span>
+                            <span x-show="c.capital" class="tag shrink-0">capital</span>
+                        </button>
+                    </template>
+                </div>
+
+                <p x-show="ciudadQuery.length >= 2 && !mostrarSugerencias && !hayCiudad && !cargando" x-cloak
+                   class="mt-2 text-cap text-ash">No cities matched that name.</p>
+            </div>
+
+            {{-- Las tres tarjetas blancas flotando sobre el crema. --}}
+            <div class="mx-auto mt-10 grid max-w-[720px] gap-4 text-left sm:grid-cols-3">
+                <div class="card p-5">
+                    <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="#4b72f3" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                        <path d="M12 21s7-6.2 7-11a7 7 0 1 0-14 0c0 4.8 7 11 7 11z"></path><circle cx="12" cy="10" r="2.6"></circle>
+                    </svg>
+                    <p class="mt-3.5 font-label">Start from a city</p>
+                    <p class="mt-1 text-cap text-ash">Type it and pick from the list</p>
+                </div>
+                <div class="card p-5">
+                    <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="#2b3ea7" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="9"></circle><path d="M3.6 9h16.8M3.6 15h16.8"></path>
+                        <path d="M12 3c-2.6 2.6-2.6 15 0 18 2.6-3 2.6-15.4 0-18z"></path>
+                    </svg>
+                    <p class="mt-3.5 font-label">Start from a country</p>
+                    <p class="mt-1 text-cap text-ash">{{ $paises }} of them, region by region</p>
+                </div>
+                <div class="card p-5">
+                    <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="#1b1917" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                        <path d="M4 6h10M4 12h16M4 18h7"></path>
+                    </svg>
+                    <p class="mt-3.5 font-label">Browse the A–Z</p>
+                    <p class="mt-1 text-cap text-ash">Every street we hold, alphabetically</p>
+                </div>
+            </div>
+            </div>
+        </section>
+
+        {{-- Todo el bloque de búsqueda: la calle, el resultado y el mapa. --}}
+        <section x-show="hayCiudad" x-cloak x-transition class="contenedor mt-10">
+
+            <div class="flex flex-wrap items-baseline justify-between gap-4">
+                <h2 class="font-display text-head-sm">
+                    Streets in <span x-text="ciudad.nombre"></span>
+                </h2>
                 {{-- Puerta de entrada a la ficha, que es la versión de esta ciudad
-                     que se puede enlazar, compartir e indexar. --}}
-                <a x-show="ciudad && ciudad.ruta" :href="ciudad.ruta" x-cloak
-                   class="text-sm text-blue-600 hover:underline">
+                     que se puede enlazar, compartir e indexar. Si la ciudad no
+                     tiene calles no tiene ficha, y `ruta` llega en null. --}}
+                <a x-show="ciudad && ciudad.ruta" :href="ciudad.ruta" x-cloak class="text-cap">
                     Full page for <span x-text="ciudad.nombre"></span> &rarr;
                 </a>
             </div>
 
-            <div class="bg-gray-50 p-6 rounded-xl border border-gray-200">
-                <div x-show="cargando" class="flex flex-col items-center justify-center py-8">
-                    <svg class="animate-spin h-8 w-8 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    <p class="text-lg text-gray-600 mt-4">Searching…</p>
+            <div class="mt-5 overflow-hidden rounded-card border border-mist bg-paper">
+                <div class="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
+                    <label for="calle" class="sr-only">Street</label>
+                    <input id="calle" x-model="calleQuery" x-on:input="buscarCalle()"
+                           type="text" autocomplete="off" placeholder="Street name…"
+                           class="field grow bg-cream py-3.5">
+                    <label for="altura" class="sr-only">House number</label>
+                    <input id="altura" x-model="altura" type="text" inputmode="numeric" placeholder="No."
+                           class="field bg-cream py-3.5 sm:w-24">
+                    <button type="button" x-on:click="limpiar()" class="btn-ghost shrink-0">Change city</button>
                 </div>
 
-                <div x-show="!cargando">
+                {{-- El mapa es la página, no una miniatura de 256px. --}}
+                <div class="h-[320px] border-t border-mist sm:h-[460px]">
+                    <iframe :src="mapaUrl" class="h-full w-full" style="border:0" loading="lazy"
+                            referrerpolicy="no-referrer-when-downgrade" title="Map"></iframe>
+                </div>
+            </div>
+
+            <p x-show="error" x-cloak x-text="error"
+               class="mt-4 rounded-card border border-mist bg-paper p-4 text-cap text-ink"></p>
+
+            <div class="mt-6 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+                <div class="card">
                     <template x-if="calleElegida">
-                        <div class="mb-6 pb-6 border-b border-gray-200">
-                            <div class="flex items-start gap-3">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                                <div>
-                                    <p class="text-lg font-bold text-gray-800" x-text="direccionCompleta"></p>
-                                    <a :href="osmUrl" target="_blank" rel="noopener noreferrer"
-                                       class="text-sm text-blue-600 hover:underline">Open in OpenStreetMap →</a>
-                                </div>
-                            </div>
+                        <div class="mb-5 border-b border-mist pb-5">
+                            <p class="font-display text-head-sm" x-text="direccionCompleta"></p>
+                            <a :href="osmUrl" target="_blank" rel="noopener noreferrer" class="mt-2 inline-block text-cap">
+                                Open in OpenStreetMap &rarr;
+                            </a>
                         </div>
                     </template>
 
-                    <template x-if="calles.length">
+                    <template x-if="cargando">
+                        <p class="text-body text-ash">Searching…</p>
+                    </template>
+
+                    <template x-if="!cargando && calles.length">
                         <div>
-                            <h3 class="font-semibold text-gray-800 mb-3"
-                                x-text="calleQueryAplicada ? 'Matching streets' : 'Most searched streets'"></h3>
-                            <ul class="divide-y divide-gray-200">
+                            {{-- Sin contadores: 1.017.913 de las 1.059.464 filas
+                                 tienen el contador en 0, así que un "1 search" al
+                                 lado de casi cada calle describe el ruido. --}}
+                            <h3 class="eyebrow" x-text="calleQueryAplicada ? 'Matching streets' : 'Streets on record'"></h3>
+                            <ul class="mt-3 divide-y divide-mist">
                                 <template x-for="c in calles" :key="c.nombre">
-                                    <li x-on:click="elegirCalle(c.nombre)"
-                                        class="py-2 flex justify-between items-center gap-3 cursor-pointer hover:bg-gray-100 rounded px-2 -mx-2">
-                                        <span class="text-gray-700" x-text="c.nombre"></span>
-                                        <span class="text-xs text-gray-500 shrink-0"
-                                              x-text="`${c.busquedas.toLocaleString()} searches`"></span>
+                                    <li>
+                                        <button type="button" x-on:click="elegirCalle(c.nombre)"
+                                                class="-mx-3 flex w-[calc(100%+1.5rem)] items-center rounded-card px-3 py-2.5 text-left transition hover:bg-cream">
+                                            <span x-text="c.nombre"></span>
+                                        </button>
                                     </li>
                                 </template>
                             </ul>
                         </div>
                     </template>
 
-                    <template x-if="!calles.length && calleQueryAplicada">
-                        <p class="text-gray-600">No street matched "<span x-text="calleQueryAplicada"></span>" in <span x-text="ciudad.nombre"></span>.</p>
-                    </template>
-
-                    <template x-if="!calles.length && !calleQueryAplicada">
-                        <p class="text-gray-600">
-                            No streets have been looked up in <span x-text="ciudad.nombre"></span> yet. This list is
-                            built from what visitors search &mdash; type a street above and you start it.
+                    <template x-if="!cargando && !calles.length && calleQueryAplicada">
+                        <p class="text-body text-ash">
+                            No street matched &ldquo;<span x-text="calleQueryAplicada"></span>&rdquo; in
+                            <span x-text="ciudad.nombre"></span>.
                         </p>
                     </template>
 
-                    <div class="w-full h-64 rounded-xl overflow-hidden border border-gray-200 mt-6">
-                        <iframe :src="mapaUrl" class="w-full h-full" style="border:0" loading="lazy"
-                                referrerpolicy="no-referrer-when-downgrade" title="Map"></iframe>
+                    {{-- El estado vacío es el caso normal, no la excepción: solo
+                         18.361 de 4.697.141 ciudades tienen alguna calle. --}}
+                    <template x-if="!cargando && !calles.length && !calleQueryAplicada">
+                        <p class="text-body text-ash">
+                            No streets have been looked up in <span x-text="ciudad.nombre"></span> yet.
+                            This list is built from what visitors search &mdash; type a street above and you start it.
+                        </p>
+                    </template>
+                </div>
+
+                <aside class="card">
+                    <h3 class="eyebrow">About this search</h3>
+                    <p class="mt-3 text-cap text-ash">
+                        Nothing here is tied to you. We keep an anonymous count of how often each
+                        street is looked up, and that count is what writes the list.
+                    </p>
+                </aside>
+            </div>
+        </section>
+
+        {{--
+            La franja de cobertura. Reemplaza al "Why Use Our Address Finder"
+            genérico: decir dónde hay calles de verdad le sirve más al visitante
+            que tres tarjetas explicando que el sitio es gratis.
+        --}}
+        @if ($cobertura->isNotEmpty())
+            <section x-show="!hayCiudad" class="contenedor py-14">
+                <h2 class="eyebrow text-center">Deepest coverage today</h2>
+                <div class="mt-7 flex flex-wrap items-baseline justify-center gap-x-14 gap-y-6">
+                    @foreach ($cobertura as $pais)
+                        <a href="{{ route('pais', $pais->url) }}" class="text-center no-underline hover:no-underline">
+                            <p class="font-display text-head-sm text-ink underline-offset-4 hover:underline">{{ $pais->nombre }}</p>
+                            <p class="mt-1.5 text-cap tabular-nums text-ink">{{ number_format($pais->calles) }} streets</p>
+                        </a>
+                    @endforeach
+                </div>
+            </section>
+
+            <div class="contenedor"><div class="h-px bg-mist"></div></div>
+        @endif
+
+        {{-- La única acción periwinkle de la pantalla. --}}
+        <section x-show="!hayCiudad" class="contenedor grid items-center gap-14 py-14 lg:grid-cols-2">
+            <div class="order-2 lg:order-1">
+                {{-- El marco de navegador inclinado: "pinned to a notebook", no
+                     una captura de producto en una grilla. --}}
+                <div class="rotate-[-4deg] overflow-hidden rounded-card bg-paper shadow-card">
+                    <div class="flex h-[34px] items-center gap-1.5 border-b border-mist px-3.5">
+                        <span class="h-2.5 w-2.5 rounded-full bg-mist"></span>
+                        <span class="h-2.5 w-2.5 rounded-full bg-mist"></span>
+                        <span class="h-2.5 w-2.5 rounded-full bg-mist"></span>
+                        <span class="ml-3 text-[12px] leading-none text-ash">worldstreets.global/canada/ontario</span>
+                    </div>
+                    <div class="space-y-2 bg-cream p-5">
+                        @foreach (['Albert Street', 'Bridgeport Road', 'Caroline Street', 'David Street'] as $ejemplo)
+                            <div class="rounded-card bg-paper px-3 py-2 text-cap">{{ $ejemplo }}</div>
+                        @endforeach
                     </div>
                 </div>
             </div>
 
-            <div class="ad-placeholder">
-                Anuncio de contenido (300x250)
+            <div class="order-1 lg:order-2">
+                <p class="eyebrow">The directory</p>
+                <h2 class="mt-4 font-display text-[34px] leading-[1.08] [text-wrap:balance] sm:text-head">
+                    Country, region, city — all the way down.
+                </h2>
+                <p class="mt-5 text-sub [text-wrap:pretty]">
+                    Every place has its own page, with the map, the local names and the streets people
+                    have looked up there. {{ number_format($conCalles) }} cities already carry a street
+                    list; the rest are waiting for their first search.
+                </p>
+                @if ($cobertura->isNotEmpty())
+                    <a href="{{ route('pais', $cobertura->first()->url) }}"
+                       class="btn-primary mt-7 no-underline hover:no-underline">
+                        Start with {{ $cobertura->first()->nombre }}
+                    </a>
+                @endif
             </div>
-        </div>
-
-        <div class="mt-12 text-left">
-            <h2 class="text-2xl font-bold text-gray-900 mb-6">
-                Why Use Our Address Finder?
-            </h2>
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                <div class="flex flex-col items-center bg-gray-50 p-6 rounded-xl border border-gray-200">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-blue-600 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                    </svg>
-                    <h3 class="font-semibold text-gray-800 text-lg">Your Privacy, Our Priority</h3>
-                    <p class="text-sm text-gray-600 mt-1 text-center">We never ask for personal data and we keep no search history tied to you &mdash; only an anonymous count of how often each street is looked up.</p>
-                </div>
-
-                <div class="flex flex-col items-center bg-gray-50 p-6 rounded-xl border border-gray-200">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-blue-600 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                    </svg>
-                    <h3 class="font-semibold text-gray-800 text-lg">Fast & Free for All</h3>
-                    <p class="text-sm text-gray-600 mt-1 text-center">Get address information instantly, with no hidden fees or required registration.</p>
-                </div>
-
-                <div class="flex flex-col items-center bg-gray-50 p-6 rounded-xl border border-gray-200">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-blue-600 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
-                    <h3 class="font-semibold text-gray-800 text-lg">High-Precision Data</h3>
-                    <p class="text-sm text-gray-600 mt-1 text-center">We utilize up-to-date data from OpenStreetMap for the most accurate results.</p>
-                </div>
-            </div>
-        </div>
-
-        <div class="mt-12 text-left">
-            <h2 class="text-2xl font-bold text-gray-900 mb-6">
-                Frequently Asked Questions
-            </h2>
-            <div class="space-y-4">
-                <div class="bg-gray-50 p-6 rounded-xl border border-gray-200">
-                    <h3 class="font-semibold text-gray-800 text-lg mb-2">What is a reverse address lookup?</h3>
-                    <p class="text-sm text-gray-600">A reverse address lookup is a process of using a street address to find information about a property or location. Our tool makes this process easy and anonymous, focusing on providing geographic details without revealing personal information.</p>
-                </div>
-                <div class="ad-placeholder">
-                    Anuncio nativo
-                </div>
-                <div class="bg-gray-50 p-6 rounded-xl border border-gray-200">
-                    <h3 class="font-semibold text-gray-800 text-lg mb-2">Is this service really free?</h3>
-                    <p class="text-sm text-gray-600">Yes, our address finder and lookup tool is completely free to use, with no hidden costs or subscriptions. We are committed to providing free public access to this essential geographical information.</p>
-                </div>
-                <div class="bg-gray-50 p-6 rounded-xl border border-gray-200">
-                    <h3 class="font-semibold text-gray-800 text-lg mb-2">How do you ensure user privacy?</h3>
-                    <p class="text-sm text-gray-600">We take your privacy very seriously. We never ask for personal information and we do not store your IP address. Two things are recorded: an anonymous tally of how many times each street has been looked up in each city &mdash; that is what powers the &ldquo;most searched streets&rdquo; list &mdash; and, for the length of your visit only, which streets you already looked up, so the same search is not counted twice. Neither is linked to an account or to you.</p>
-                </div>
-            </div>
-        </div>
-
-        <div class="mt-12 text-left">
-            <h2 class="text-xl font-bold text-gray-900 mb-3">Our Commitment to You</h2>
-            <p class="text-gray-600">
-                worldstreets.global was created with a mission to provide a simple, accessible, and free address lookup tool for everyone. We believe that geographical information should be readily available without compromising user privacy. Our tool is a reflection of this commitment, offering a direct, transparent, and secure service.
-            </p>
-        </div>
-
+        </section>
     </div>
 @endsection

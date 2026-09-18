@@ -4,10 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Models\Busqueda;
 use App\Models\Ciudad;
+use App\Models\Pais;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -36,14 +38,69 @@ class BuscadorController extends Controller
      * segundos y el dataset solo cambia cuando se reimporta. Después de una
      * importación hay que limpiar la caché para que el número se mueva.
      */
+    /** Cuántos países se nombran en la franja de cobertura de la home. */
+    private const PAISES_DESTACADOS = 4;
+
     public function home(): View
     {
-        $totales = Cache::rememberForever('buscador.totales', fn () => [
+        /*
+         * La clave lleva versión porque el valor es un array de claves y el
+         * caché es `rememberForever`: al agregarle `conCalles`, el valor viejo
+         * —guardado sin esa clave— seguía sirviéndose y la home tiraba
+         * "Undefined variable $conCalles" en producción sin que ningún test lo
+         * viera, porque en los tests el store es `array` y arranca vacío.
+         *
+         * Subir el número acá es más barato que acordarse de correr
+         * `cache:clear` en el deploy.
+         */
+        $totales = Cache::rememberForever('buscador.totales.v2', fn () => [
             'ciudades' => Ciudad::count(),
             'paises' => Ciudad::distinct()->count('pais_id'),
+            'conCalles' => Ciudad::query()->conCalles()->count(),
         ]);
 
-        return view('welcome', $totales);
+        return view('welcome', $totales + ['cobertura' => $this->cobertura()]);
+    }
+
+    /**
+     * Los países con más calles en la base.
+     *
+     * La home decía "4.697.141 cities across 249 countries", que es cierto y
+     * no sirve: de esas ciudades, 18.361 tienen una calle. Nombrar dónde hay
+     * cobertura de verdad es lo que le dice al visitante si su lugar va a
+     * aparecer, y de paso es el activo real del proyecto — Canadá son 482.100
+     * calles y el único mercado cuyo RPM se mantuvo.
+     *
+     * Un día de caché: la lista solo se mueve cuando alguien busca una calle
+     * en un país que estaba al borde del corte.
+     *
+     * @return \Illuminate\Support\Collection<int, object>
+     */
+    private function cobertura(): Collection
+    {
+        return Cache::remember('buscador.cobertura', now()->addDay(), function () {
+            $porPais = DB::table('busquedas as b')
+                ->join('ciudades as c', 'c.id', '=', 'b.ciudad_id')
+                ->selectRaw('c.pais_id, count(*) as calles')
+                ->groupBy('c.pais_id')
+                ->orderByDesc('calles')
+                ->limit(self::PAISES_DESTACADOS)
+                ->get();
+
+            // Con la url, porque los nombres de la franja son enlaces: las
+            // fichas de país son lo más eficiente que tiene el sitio —246 URLs
+            // se llevaron 2.951 clics— y no las enlazaba nada desde la home.
+            $paises = Pais::whereIn('id', $porPais->pluck('pais_id'))->get(['id', 'nombre', 'url'])->keyBy('id');
+
+            return $porPais
+                ->filter(fn (object $fila) => isset($paises[$fila->pais_id]) && $paises[$fila->pais_id]->url)
+                ->map(fn (object $fila) => (object) [
+                    'nombre' => $paises[$fila->pais_id]->nombre,
+                    'url' => $paises[$fila->pais_id]->url,
+                    'calles' => (int) $fila->calles,
+                ])
+                ->values();
+        });
     }
 
     /**
