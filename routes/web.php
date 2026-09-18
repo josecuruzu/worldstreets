@@ -4,24 +4,13 @@ use App\Http\Controllers\BuscadorController;
 use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', function () {
-    return view('welcome');
-})->name('home');
+Route::get('/', [BuscadorController::class, 'home'])->name('home');
 
 /*
-| Endpoints del buscador de la home. Son GET y no mutan nada, así que no
-| necesitan token CSRF; van con throttle porque los dispara el autocomplete
-| mientras el usuario tipea.
+| Los GET del buscador se fueron a routes/public.php: no dependen de sesión y
+| ahí salen sin cookie y cacheables. Este POST se queda porque muta y porque
+| deduplica por sesión.
 */
-Route::get('/api/ciudades', [BuscadorController::class, 'ciudades'])
-    ->name('api.ciudades')
-    ->middleware('throttle:120,1');
-
-Route::get('/api/ciudades/{ciudad}/calles', [BuscadorController::class, 'calles'])
-    ->name('api.ciudades.calles')
-    ->whereNumber('ciudad')
-    ->middleware('throttle:120,1');
-
 /*
 | Este sí muta: suma uno al contador de la calle buscada. Va por POST, con el
 | CSRF y la sesión del grupo `web` (la sesión es lo que evita contar dos veces
@@ -43,3 +32,15 @@ Route::middleware('auth')->group(function () {
 });
 
 require __DIR__.'/auth.php';
+
+/*
+| URLs del sitio viejo en CakePHP.
+|
+| Van antes de las fichas de lugar porque comparten espacio de nombres: sin
+| esto, `/esp` lo tomaría `/{pais}` y `/country` también. Por cantidad de
+| segmentos no chocarían igual, pero el orden lo deja explícito.
+|
+| El prefijo de idioma se acepta en las cuatro variantes que publicaba el
+| Cake y se descarta: el destino es siempre la versión en inglés, que es la
+| decisión de producto (el mercado anglo es el 83,1% de los ingresos).
+*/

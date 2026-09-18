@@ -214,4 +214,27 @@ class RegistroBusquedasTest extends TestCase
         $this->getJson('/api/ciudades/'.self::CIUDAD_ID.'/calles')
             ->assertJsonPath('calles.0.busquedas', 827);
     }
+
+    /**
+     * Una calle recién buscada tiene que aparecer en el índice A–Z de la ficha,
+     * que es la página que Google recorre. El índice va cacheado 12 horas: sin
+     * invalidarlo, la ficha vacía seguiría diciendo "be the first and you start
+     * it" después de que alguien ya la empezó.
+     */
+    public function test_una_calle_nueva_aparece_en_la_ficha_de_la_ciudad(): void
+    {
+        // Antes de la primera búsqueda la ciudad no tiene página: es la regla
+        // de ciudad-con-contenido, que deja fuera a 4,68 M de fichas vacías.
+        $this->get('/argentina/santa-fe/rosario-'.self::CIUDAD_ID)->assertStatus(410);
+
+        $this->withSession([])->postJson('/api/busquedas', [
+            'ciudad_id' => self::CIUDAD_ID,
+            'nombre_calle' => 'adderley street',
+        ])->assertNoContent();
+
+        // Y la gana sola con la primera calle que alguien busque.
+        $this->get('/argentina/santa-fe/rosario-'.self::CIUDAD_ID)
+            ->assertOk()
+            ->assertSee('Adderley Street');
+    }
 }

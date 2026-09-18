@@ -6,10 +6,10 @@
     <div x-data="addressFinderApp()" class="bg-white rounded-2xl shadow-xl w-full max-w-2xl p-8 md:p-12 text-center my-8">
 
         <h1 class="text-3xl md:text-4xl font-extrabold text-gray-900 mb-2">
-            Address Finder for Argentina
+            Address Finder Worldwide
         </h1>
         <p class="text-gray-600 text-lg mb-8">
-            Search any street in <strong class="font-bold text-gray-800">6,921 cities</strong> across Argentina. Our tool is the fastest, free, and <strong class="font-bold text-gray-800">completely anonymous</strong> way to perform a reverse address lookup.
+            Search <strong class="font-bold text-gray-800">{{ number_format($ciudades) }} cities</strong> across <strong class="font-bold text-gray-800">{{ $paises }} countries</strong>. Our tool is the fastest, free, and <strong class="font-bold text-gray-800">completely anonymous</strong> way to perform a reverse address lookup.
         </p>
 
         <div class="ad-placeholder">
@@ -21,7 +21,8 @@
             <label for="ciudad" class="block text-sm font-semibold text-gray-700 mb-1">1. City</label>
             <input id="ciudad" x-model="ciudadQuery" x-on:input="buscarCiudad()"
                    x-on:click.outside="mostrarSugerencias = false"
-                   type="text" autocomplete="off" placeholder="Start typing a city, e.g. Rosario…"
+                   {{-- Ejemplo de una ciudad con buena cobertura de calles (21.910), no de una argentina. --}}
+                   type="text" autocomplete="off" placeholder="Start typing a city, e.g. Cape Town…"
                    class="w-full p-4 text-gray-700 bg-gray-100 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-300">
 
             <div x-show="mostrarSugerencias && sugerencias.length" x-transition x-cloak
@@ -31,7 +32,7 @@
                          class="p-3 cursor-pointer hover:bg-gray-100 transition duration-200 flex justify-between items-center gap-3">
                         <span>
                             <span class="font-medium text-gray-800" x-text="c.nombre"></span>
-                            <span class="text-sm text-gray-500" x-text="`${c.provincia}, ${c.pais}`"></span>
+                            <span class="text-sm text-gray-500" x-text="ubicacion(c.provincia, c.pais)"></span>
                         </span>
                         <span x-show="c.capital"
                               class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full shrink-0">capital</span>
@@ -59,9 +60,16 @@
             </div>
 
             <p class="text-sm text-gray-500 mt-2">
-                <span x-text="totalCalles.toLocaleString()"></span> streets on record for
-                <span class="font-medium" x-text="ciudad.nombre"></span>.
-                <span x-show="!calleQueryAplicada">Showing the most searched ones.</span>
+                {{-- Solo 18.361 de 4,7 M de ciudades tienen calles cargadas, así que el
+                     caso "todavía no hay ninguna" es el normal, no la excepción. --}}
+                <span x-show="totalCalles">
+                    <span x-text="totalCalles.toLocaleString()"></span> streets on record for
+                    <span class="font-medium" x-text="ciudad.nombre"></span>.
+                    <span x-show="!calleQueryAplicada">Showing the most searched ones.</span>
+                </span>
+                <span x-show="!totalCalles">
+                    No streets recorded yet for <span class="font-medium" x-text="ciudad.nombre"></span>. Yours would be the first.
+                </span>
             </p>
         </div>
 
@@ -70,7 +78,15 @@
 
         {{-- Resultados --}}
         <div x-show="hayCiudad" x-cloak class="w-full mt-8 text-left" x-transition>
-            <h2 class="text-2xl font-bold text-gray-900 mb-6">Search Results</h2>
+            <div class="flex items-baseline justify-between gap-4 flex-wrap mb-6">
+                <h2 class="text-2xl font-bold text-gray-900">Search Results</h2>
+                {{-- Puerta de entrada a la ficha, que es la versión de esta ciudad
+                     que se puede enlazar, compartir e indexar. --}}
+                <a x-show="ciudad && ciudad.ruta" :href="ciudad.ruta" x-cloak
+                   class="text-sm text-blue-600 hover:underline">
+                    Full page for <span x-text="ciudad.nombre"></span> &rarr;
+                </a>
+            </div>
 
             <div class="bg-gray-50 p-6 rounded-xl border border-gray-200">
                 <div x-show="cargando" class="flex flex-col items-center justify-center py-8">
@@ -116,6 +132,13 @@
 
                     <template x-if="!calles.length && calleQueryAplicada">
                         <p class="text-gray-600">No street matched "<span x-text="calleQueryAplicada"></span>" in <span x-text="ciudad.nombre"></span>.</p>
+                    </template>
+
+                    <template x-if="!calles.length && !calleQueryAplicada">
+                        <p class="text-gray-600">
+                            No streets have been looked up in <span x-text="ciudad.nombre"></span> yet. This list is
+                            built from what visitors search &mdash; type a street above and you start it.
+                        </p>
                     </template>
 
                     <div class="w-full h-64 rounded-xl overflow-hidden border border-gray-200 mt-6">

@@ -47,7 +47,19 @@ document.addEventListener('alpine:init', () => {
             if (!this.calleElegida) return '';
             const altura = this.altura.trim();
             const calle = altura ? `${this.calleElegida} ${altura}` : this.calleElegida;
-            return `${calle}, ${this.ciudad.nombre}, ${this.ciudad.provincia}, ${this.ciudad.pais}`;
+            return this.ubicacion(calle, this.ciudad.nombre, this.ciudad.provincia, this.ciudad.pais);
+        },
+
+        /**
+         * Une las partes de una ubicación salteando las que no existen.
+         *
+         * 56.721 ciudades del dataset global no tienen provincia — su admin1 es
+         * el centinela `XX.00` de GeoNames, como Mónaco o Koforidua — y la API
+         * devuelve null. Interpolarlo derecho escribía "null" en pantalla, en
+         * la dirección que se copia y en la consulta que va a OpenStreetMap.
+         */
+        ubicacion(...partes) {
+            return partes.filter(Boolean).join(', ');
         },
 
         /** URL del mapa embebido de OSM, encuadrado con el bbox de la ciudad. */
@@ -123,7 +135,7 @@ document.addEventListener('alpine:init', () => {
 
         async elegirCiudad(ciudad) {
             this.ciudad = ciudad;
-            this.ciudadQuery = `${ciudad.nombre}, ${ciudad.provincia}`;
+            this.ciudadQuery = this.ubicacion(ciudad.nombre, ciudad.provincia);
             this.mostrarSugerencias = false;
             this.sugerencias = [];
             this.calleQuery = '';

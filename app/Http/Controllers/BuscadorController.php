@@ -11,6 +11,7 @@ use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\View\View;
 
 /*
  * Endpoints JSON del buscador de la home.
@@ -23,6 +24,27 @@ class BuscadorController extends Controller
 {
     /** Con menos caracteres el resultado es demasiado ruidoso para servir de algo. */
     private const MIN_CARACTERES = 2;
+
+    /**
+     * La home.
+     *
+     * Le pasa los totales reales del dataset porque la copy los traía escritos
+     * a mano — "6,921 cities across Argentina" — y quedaron viejos apenas
+     * entraron los datos globales.
+     *
+     * Van cacheados sin vencimiento: contar 4,7 M de filas cuesta un par de
+     * segundos y el dataset solo cambia cuando se reimporta. Después de una
+     * importación hay que limpiar la caché para que el número se mueva.
+     */
+    public function home(): View
+    {
+        $totales = Cache::rememberForever('buscador.totales', fn () => [
+            'ciudades' => Ciudad::count(),
+            'paises' => Ciudad::distinct()->count('pais_id'),
+        ]);
+
+        return view('welcome', $totales);
+    }
 
     /**
      * Autocomplete de ciudades.
@@ -41,7 +63,7 @@ class BuscadorController extends Controller
 
         $ciudades = Cache::remember($clave, now()->addMinutes(15), function () use ($q) {
             return Ciudad::buscar($q)
-                ->with(['provincia:id,nombre', 'pais:id,nombre'])
+                ->with(['provincia:id,nombre', 'pais:id,nombre,url'])
                 ->limit(8)
                 ->get([
                     'id', 'nombre', 'alias', 'url', 'centro_x', 'centro_y', 'zoom',
@@ -53,6 +75,9 @@ class BuscadorController extends Controller
                     'provincia' => $c->provincia?->nombre,
                     'pais' => $c->pais?->nombre,
                     'url' => $c->url,
+                    // La ficha de la ciudad, que es la versión enlazable de
+                    // este resultado.
+                    'ruta' => $c->rutaDeLaFicha(),
                     'lat' => (float) $c->centro_x,
                     'lon' => (float) $c->centro_y,
                     'zoom' => $c->zoom,
@@ -102,6 +127,7 @@ class BuscadorController extends Controller
                 'nombre' => $ciudad->display_name,
                 'provincia' => $ciudad->provincia?->nombre,
                 'pais' => $ciudad->pais?->nombre,
+                'ruta' => $ciudad->rutaDeLaFicha(),
                 'lat' => (float) $ciudad->centro_x,
                 'lon' => (float) $ciudad->centro_y,
                 'zoom' => $ciudad->zoom,
@@ -177,6 +203,17 @@ class BuscadorController extends Controller
             }
 
             Ciudad::whereKey($ciudadId)->increment('visitas');
+
+            /*
+             * Y la ciudad pasa a tener página. Su ficha responde 410 hasta que
+             * alguien busca la primera calle: es la regla de
+             * ciudad-con-contenido, y esta es la línea que la revierte.
+             *
+             * Se marca siempre y no solo al crear la calle, porque la fila
+             * puede existir desde el import mientras la columna quedó en 0 —y
+             * cuesta un UPDATE sobre una clave primaria.
+             */
+            Ciudad::whereKey($ciudadId)->where('tiene_calles', false)->update(['tiene_calles' => true]);
         });
 
         /*
@@ -186,6 +223,14 @@ class BuscadorController extends Controller
          * store `database` no soporta tags. Vencen solas a los 15 minutos.
          */
         Cache::forget(self::claveCalles($ciudadId, ''));
+
+        /*
+         * Y el índice A–Z de la ficha de la ciudad, que es la página que
+         * Google recorre. Si la calle es nueva, sin esto no aparecería
+         * hasta 12 horas después — y la ficha vacía dice literalmente "be
+         * the first and you start it", que quedaría desmentido.
+         */
+        Cache::forget("lugar.ciudad.{$ciudadId}.calles");
 
         return response()->noContent();
     }

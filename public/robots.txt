@@ -1,2 +1,70 @@
 User-agent: *
-Disallow:
+Disallow: /api/
+Disallow: /login
+Disallow: /register
+Disallow: /dashboard
+Disallow: /profile
+
+# Las URLs del sitio viejo en CakePHP no se bloquean, a propósito: todas
+# devuelven 301 hacia el esquema nuevo, o 410 si ya no existen. Lo que se
+# bloquea acá no se rastrea, y un 410 que Google nunca llega a leer no limpia
+# nada. Con 18,28 M de URLs descubiertas y 240 rastreos diarios, dejar entrar
+# al robot es justamente lo que hace falta.
+
+# Bots que consumen el sitio sin dejar nada.
+#
+# Medido en AdSense: China 28.720 paginas vistas con 0,02 impresiones de
+# anuncio por pagina y $0,38 al ano; Singapur 9.431 con 0,04 y $0,35. Los
+# paises que monetizan estan entre 4,45 y 6,17 impresiones por pagina.
+# Son el 59% de las paginas vistas por 73 centavos, sobre un hosting que
+# responde en 2.400 ms.
+#
+# Los que respetan esto se van solos. Para los que no —Bytespider es el
+# caso tipico— esta el 403 de App\Http\Middleware\BloqueaScrapers.
+
+User-agent: Bytespider
+Disallow: /
+
+User-agent: PetalBot
+Disallow: /
+
+User-agent: YisouSpider
+Disallow: /
+
+User-agent: Sogou
+Disallow: /
+
+User-agent: Baiduspider
+Disallow: /
+
+User-agent: AhrefsBot
+Disallow: /
+
+User-agent: SemrushBot
+Disallow: /
+
+User-agent: DotBot
+Disallow: /
+
+User-agent: MJ12bot
+Disallow: /
+
+User-agent: BLEXBot
+Disallow: /
+
+User-agent: DataForSeoBot
+Disallow: /
+
+User-agent: serpstatbot
+Disallow: /
+
+User-agent: ZoominfoBot
+Disallow: /
+
+User-agent: SeokicksBot
+Disallow: /
+
+User-agent: MegaIndex
+Disallow: /
+
+Sitemap: https://worldstreets.global/sitemap.xml

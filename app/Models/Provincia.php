@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Str;
 
 class Provincia extends Model
 {
@@ -57,5 +58,17 @@ class Provincia extends Model
     public function scopeByUrl(Builder $query, string $url): Builder
     {
         return $query->where('url', $url);
+    }
+
+    /**
+     * Segmento de URL dentro del país: `/japan/tokyo`.
+     *
+     * No se usa la columna `url`, que trae el país pegado ("tokyo-japan") y en
+     * una ruta anidada lo repetiría. Dos provincias del dataset no tienen
+     * nombre, así que ahí se cae al id, que siempre está.
+     */
+    public function getSlugAttribute(): string
+    {
+        return Str::slug((string) $this->nombre) ?: Str::slug($this->id);
     }
 }
