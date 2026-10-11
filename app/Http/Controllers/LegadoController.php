@@ -31,6 +31,13 @@ use Illuminate\Support\Facades\App;
  * 6.930 clics en 16 meses): TODAS caen en ese esquema, ninguna quedó fuera
  * pese al `fallbacks(DashedRoute::class)` que el Cake tenía al final.
  *
+ * Hay un sexto patrón que no sale de routes.php: `/county/find/maps/address/
+ * {ciudades.url}`. Es la `url` que el JSON-LD de `Ciudades/plano.ctp` declaraba
+ * para cada ciudad —una ruta que el Cake nunca tuvo, con el slug de la ciudad—,
+ * y Google la descubrió desde ahí. En la muestra de 404 de Search Console del
+ * 11-oct eran las únicas URLs que daban 404 y no 410. Se tratan como lo que
+ * nombran, la ficha de ciudad: 301 si tiene página, 410 si no.
+ *
  * Los slugs no hay que recalcularlos: están guardados en la columna `url` de
  * cada tabla, que es la misma que usaba el Cake para armar los enlaces. Contra
  * los slugs con tráfico, países y provincias resuelven al 100%.

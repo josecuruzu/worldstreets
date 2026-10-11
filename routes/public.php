@@ -115,6 +115,9 @@ Route::get('/r/{codigo}', [CompartirController::class, 'abrir'])
 */
 $legado = function () {
     Route::get('view/find/maps/address/{slug}', [LegadoController::class, 'ciudad']);
+    // No es una ruta del Cake: es la URL que escribía el JSON-LD de su ficha de
+    // ciudad, con el slug de la CIUDAD. Ver el docblock de LegadoController.
+    Route::get('county/find/maps/address/{slug}', [LegadoController::class, 'ciudad']);
     Route::get('country/maps/address/{slug}', [LegadoController::class, 'pais']);
     Route::get('state/maps/address/{slug}', [LegadoController::class, 'provincia']);
     Route::get('county/maps/address/{slug}', [LegadoController::class, 'eliminado']);

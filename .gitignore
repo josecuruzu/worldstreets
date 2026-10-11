@@ -26,3 +26,6 @@ Thumbs.db
 # Datos locales y exportaciones de analitica
 /analytics/
 *.sql
+
+# Paquetes de despliegue: llevan vendor/ y el .env de producción adentro
+/*.zip

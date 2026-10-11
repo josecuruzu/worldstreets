@@ -72,6 +72,20 @@ class RedireccionesDelSitioViejoTest extends TestCase
             ->assertRedirect('/south-africa/western-cape/cape-town-3369157');
     }
 
+    /**
+     * El JSON-LD de la ficha del Cake declaraba la ciudad bajo
+     * `/county/find/…`, una ruta que no existía. Google la descubrió y la
+     * reportaba como 404: lleva el slug de la ciudad, así que va a su ficha.
+     */
+    public function test_la_url_del_json_ld_viejo_va_a_la_ficha_de_ciudad(): void
+    {
+        $this->get('/county/find/maps/address/cape-town-western-cape-south-africa')
+            ->assertStatus(301)
+            ->assertRedirect('/south-africa/western-cape/cape-town-3369157');
+
+        $this->get('/county/find/maps/address/ciudad-que-no-existe')->assertStatus(410);
+    }
+
     public function test_el_pais_viejo_redirige_al_nuevo(): void
     {
 

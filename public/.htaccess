@@ -13,6 +13,29 @@
     RewriteCond %{HTTP:x-xsrf-token} .
     RewriteRule .* - [E=HTTP_X_XSRF_TOKEN:%{HTTP:X-XSRF-Token}]
 
+    # Una sola versión del dominio: https y sin www.
+    #
+    # Medido en vivo el 11-oct: http://worldstreets.global respondía 200 sin
+    # redirigir, así que cada URL existía dos veces, y www respondía 200 con
+    # el noindex de HostCanonico. El noindex le pide a Google que descarte la
+    # copia; el 301 además le pasa los enlaces que apunten a ella.
+    #
+    # Solo para el dominio de producción, escrito a mano: el local y el
+    # subdominio de pruebas pasan sin tocar. Si cambia el dominio hay que
+    # cambiarlo acá, igual que el Sitemap: de robots.txt.
+    #
+    # X-Forwarded-Proto evita el bucle si algún día se pone un proxy con TLS
+    # delante (Cloudflare): ahí %{HTTPS} llega siempre en off. Y .well-known
+    # queda afuera para que la renovación del certificado de cPanel no
+    # dependa de seguir una redirección.
+    RewriteCond %{REQUEST_URI} !^/\.well-known/
+    RewriteCond %{HTTP_HOST} ^(www\.)?worldstreets\.global$ [NC]
+    RewriteCond %{HTTPS} off [OR]
+    RewriteCond %{HTTP_HOST} ^www\. [NC]
+    RewriteCond %{HTTP:X-Forwarded-Proto} !^https$ [OR]
+    RewriteCond %{HTTP_HOST} ^www\. [NC]
+    RewriteRule ^ https://worldstreets.global%{REQUEST_URI} [L,R=301]
+
     # Redirect Trailing Slashes If Not A Folder...
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteCond %{REQUEST_URI} (.+)/$

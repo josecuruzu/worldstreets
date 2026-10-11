@@ -10,6 +10,10 @@
 > CakePHP. Lo que cambió respecto de la versión anterior está marcado con
 > **[HECHO]**, y los números que resultaron equivocados están corregidos con una
 > nota de por qué.
+>
+> **Actualizado el 2026-10-11.** El Laravel está en producción en
+> `worldstreets.global`: operativo desde el **17-sep**, corte definitivo el
+> **20-sep**. La primera lectura de resultados está en §19.
 
 ---
 
@@ -282,7 +286,9 @@ en otra carpeta y sobre otro dominio para probar, y después al dominio original
   - `CANONICAL_HOST` vacío apaga todo, que es el caso de local.
   - ⚠️ El `Sitemap:` de `public/robots.txt` sigue con el dominio escrito a mano
     (es un archivo estático, no pasa por PHP). El día que cambie el dominio hay
-    que tocarlo ahí también.
+    que tocarlo ahí también, **y en `public/.htaccess`**, que desde el 11-oct
+    redirige 301 `http://` y `www.` a `https://worldstreets.global` con el
+    dominio escrito a mano.
 
   Y no bloquear el dominio de pruebas por robots.txt: lo que se
   bloquea no se rastrea, y lo que no se rastrea nunca lee el noindex.
@@ -613,7 +619,8 @@ https://worldstreets.global/ — CakePHP, online.
 /country/maps/address/{slug}
 /state/maps/address/{slug}
 /view/find/maps/address/{slug}          ← ficha de CIUDAD
-/county/find/maps/address/{slug}
+/county/maps/address/{slug}             ← condado, la ruta real del Cake
+/county/find/maps/address/{slug}        ← NO es ruta: es la `url` del JSON-LD de la ficha de ciudad, con slug de ciudad (ver §19)
 /{esp|por|fra|ita}/...                  ← cada una multiplicada por 5 idiomas
 ```
 
@@ -1859,3 +1866,177 @@ lo que rompe no avisa.
   de 6.930: no mueven la aguja y la home es la única página con sesión.
 - **Verificar en AdSense que las unidades intercaladas no disparen un aviso de
   densidad.** Es poco probable con una cada 19 pantallas, pero se mira.
+
+---
+
+## 19. Primera lectura después del corte
+
+> 11-oct-2026. Exports de Search Console (últimos 3 meses, global, EE.UU. y
+> EE.UU. + `/es/`; cobertura del sitemap y de todas las URLs conocidas;
+> estadísticas de rastreo), AdSense por día y país del 11-sep al 10-oct y por
+> unidad, y GA4 del 11-sep al 10-oct. Todo en `analytics/`.
+
+**Fechas:** el Laravel quedó operativo en el dominio el **17-sep** y el corte
+definitivo fue el **20-sep**. Las dos se ven en el rastreo: el 17 el tiempo de
+respuesta cae de 2.396 a 504 ms. Para medir "después", usar el 20.
+
+**En una línea: lo técnico respondió, el tráfico todavía no.** Son tres semanas
+para un sitio que viene de una caída algorítmica, y el informe que decide el
+paso 6 sigue sin datos del sitio nuevo.
+
+### Rastreo — respondió
+
+| | hasta 16-sep | 17 al 19-sep | desde 20-sep |
+|---|---|---|---|
+| peticiones/día | 494 | 1.937 | **1.795** (pico 5.568 el 28-sep) |
+| respuesta media | 2.382 ms | 332 ms | **140 ms** (~100 desde el 25-sep) |
+
+El reparto no cambió: 90% refresco, 9,6% descubrimiento (antes 91 / 8,9).
+Respuestas: 200 el 75,6%, **404 el 13,1%**, 301 el 11,2%, 302 el 0,08%.
+
+### Indexación — el universo se achicó, la medición está congelada
+
+| | antes | último dato |
+|---|---|---|
+| "Descubierta: sin indexar" (todas las conocidas) | 18.257.254 | **3.936.274** (informe del 18-sep) |
+| Indexadas (todas las conocidas) | 26.393 | 25.527 |
+| Sitemap nuevo: indexadas / enviadas | 1.714 / 20.053 | **4.709 / 20.053 (23%)** el 21-sep |
+
+⚠️ **El informe de cobertura no se movió desde el 21-sep**: todas las fechas
+posteriores repiten el mismo número. Es la pregunta que habilita el paso 6
+—¿se indexan las 22.581?— y todavía no tiene respuesta.
+
+Motivos que informa Google, todas las URLs conocidas:
+
+| motivo | páginas | lectura |
+|---|---|---|
+| No se ha encontrado (404) | 4.495 | **son los 410 previstos** — ver "Los 404" abajo |
+| Página con redirección | 2.913 | los 301 del Cake, funcionando |
+| Alternativa con canónica adecuada | 1.311 | probablemente `http://`, `www.` y `utm_*`; el `.htaccess` del 11-oct atiende los dos primeros |
+| Duplicada, Google eligió otra canónica | 225 | — |
+| Soft 404 | 1 | — |
+
+### Búsqueda — sin recuperación, con la posición mejorando
+
+| semana | clics | impresiones | posición |
+|---|---|---|---|
+| W33 (antes de la caída) | 95 | 14.474 | 39,0 |
+| W35 | 6 | 2.862 | 70,0 |
+| W38 (corte) | 6 | 364 | 36,8 |
+| W40 | 5 | 473 | 34,0 |
+| W41 (4 días) | 3 | 306 | **19,3** |
+
+Del 1-sep en adelante, 0,7 clics/día antes del corte y 0,8 después. La
+posición sube con volumen demasiado chico para afirmar nada.
+
+**Google sigue mostrando las URLs del Cake**: en tres meses, 988 URLs viejas
+con impresiones contra **11 nuevas**. Las nuevas que ya rankean: `/india`
+(posición 5,3), y en `/es/` Soacha, Barquisimeto y Cerro (6-8) — el segmento A
+de §14, que es el que ya funcionaba.
+
+Escritorio sigue siendo el desperdicio: 0,25% de CTR en posición 40, contra
+2,27% en móvil en posición 12,4.
+
+### AdSense
+
+| | antes del 20-sep (8 días) | desde el 20-sep (21 días) |
+|---|---|---|
+| ingresos/día | $0,13 | **$0,04** |
+| EE.UU. | $0,64 | $0,40 |
+
+El 19-sep no hay ni una fila: ni ingresos ni páginas vistas.
+
+Por unidad (el export no declara el período):
+
+| unidad | impresiones | visibles | RPM |
+|---|---|---|---|
+| ws ciudad superior | 437 | **93%** | $0,57 |
+| ws país superior | 114 | 81% | $1,48 |
+| ws país medio | 115 | 67% | $1,27 |
+| ws ciudad índice | 80 | **24%** | $0,41 |
+
+Las unidades del panel ya no son las del Cake (contra lo que dice §18). La
+intercalada del índice casi no llega a verse: vigilarla antes de sumar más.
+
+### Tráfico bot que el User-Agent no frena
+
+- **Singapur: 765 páginas vistas** desde el corte, cero ingresos. En GA4,
+  **220 de las 347 sesiones de la home** vienen de ahí con 0 s de interacción.
+- **27-sep: 3.378 páginas vistas en un día**, repartidas entre Brasil,
+  Bangladés, Vietnam, Pakistán, México y Filipinas, con 231 impresiones de
+  anuncio. Distribuido por país: proxies residenciales, no se ataja por
+  User-Agent.
+
+Con páginas a 100 ms servirlo cuesta poco; lo que hace es **ensuciar GA4 y el
+RPM de AdSense**. Bloquearlo en un hosting compartido pide Cloudflare o rangos
+de IP.
+
+### GA4
+
+Volvió a medir: aparecen las rutas del Laravel. Lo del 20-sep (§18) está
+resuelto, con la salvedad de los bots de arriba.
+
+### Revisión del sitio en vivo (11-oct)
+
+Verificado con `curl` contra producción: 301 del Cake (ciudad, provincia,
+país, `/esp/` → `/es/`, `/fra/` → inglés), 410 de continentes y condados,
+sitemaps (208, host correcto), fichas sin cookie y con `s-maxage=3600`,
+title, description, canonical, hreflang recíprocos en `/es/`, GA4, AdSense,
+`ads.txt`, verificaciones de Google y Yandex, 403 a Bytespider y 200 a
+Googlebot, `noindex` en `www.`.
+
+Lo que apareció:
+
+- **`http://` respondía 200 sin redirigir**, y `www.` 200 con noindex.
+  Corregido en `public/.htaccess` (301 a `https://worldstreets.global`),
+  probado contra un Apache local. **Subido el 11-oct y verificado en vivo**:
+  `http://` y `www.` dan 301 en un solo salto, la query string pasa entera,
+  `https://worldstreets.global` responde 200 y `.well-known` no redirige.
+- El hosting agrega `Vary: User-Agent` a todas las respuestas, estáticos
+  incluidos. No sale del código y parte la caché por navegador.
+- No hay cabecera `X-LiteSpeed-Cache`: no está confirmado que LiteSpeed sirva
+  las fichas desde su caché. Con 100 ms no urge.
+- `/esp/` hace dos saltos (`/esp/` → `/esp` → `/`).
+
+### Lo que sigue
+
+1. ~~Subir el `.htaccess`~~ — hecho el 11-oct.
+2. ~~Exportar los ejemplos de 404~~ — hecho; ver abajo. La ruta
+   `/county/find/…` se desplegó el 11-oct y está verificada en vivo con los 7
+   casos de la muestra: 3 dan 301 a la ficha y 4 dan 410.
+3. **Repetir estos exports hacia el 25-oct**, cuando la cobertura se
+   actualice. Hasta entonces, el paso 6 no se toca.
+
+### Los 404
+
+Export de detalle de cobertura (`analytics/404-drilldown/`): 1.000 de las
+4.495 URLs, rastreadas entre el 2 y el 5 de octubre.
+
+**Las 1.000 son URLs del Cake**, ninguna del sitio nuevo: 692 fichas de ciudad
+con prefijo de idioma, 299 sin prefijo y 9 de otros tipos. Pedidas de nuevo
+el 11-oct (152, todas las que no eran fichas de ciudad más una de cada siete
+de las fichas):
+
+| respuesta hoy | URLs |
+|---|---|
+| **410** | 145 |
+| 404 | 7 |
+
+**Search Console agrupa los 410 bajo "No se ha encontrado (404)"**: no tiene
+categoría propia para ellos. El número es el mecanismo de limpieza
+funcionando — ciudades sin calles que la regla de ciudad-con-contenido dejó
+sin ficha—, no páginas rotas. Va a crecer mientras Google recorre las 3,9 M
+de URLs descubiertas, y eso es lo que tiene que pasar.
+
+**Los 7 que sí eran 404 eran todos `/county/find/maps/address/{slug}`.** No es
+una ruta del Cake: es la `url` que el JSON-LD de `Ciudades/plano.ctp`
+declaraba para cada ciudad, con el slug de la **ciudad**, bajo un prefijo que
+no existía. Google la descubrió desde el marcado. La versión anterior de §5
+la listaba como ruta de condado, y el 11-oct se "corrigió" por error a
+`/county/maps/…` antes de encontrar el origen: existen las dos.
+
+Ahora va al mismo método que `/view/find/…`: 301 a la ficha si la ciudad
+tiene calles, 410 si no. Contra la base local, de los 7 de la muestra, 3 pasan
+a 301 a fichas con contenido (Ecatepec, Larsai, Mata-Utu) y 4 a 410.
+Test: `test_la_url_del_json_ld_viejo_va_a_la_ficha_de_ciudad`. Suite: **289
+tests, 803 assertions**.
