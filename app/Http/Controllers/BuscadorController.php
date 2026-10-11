@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Busqueda;
 use App\Models\Ciudad;
 use App\Models\Pais;
+use App\Support\Nominatim;
+use App\Support\TipoDeVia;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -116,15 +118,47 @@ class BuscadorController extends Controller
             return response()->json([]);
         }
 
-        $clave = 'buscador.ciudades.'.md5(Ciudad::normalizar($q));
+        /*
+         * `pais` acota la busqueda a un pais, por su slug de URL.
+         *
+         * Lo usa el buscador de la ficha de pais, que es la pagina mas
+         * eficiente del sitio —246 URLs se llevaron 2.951 clics— y hasta ahora
+         * la mas pasiva: el visitante que llegaba de `reverse address lookup
+         * canada` tenia que elegir region, despues ciudad, y recien ahi podia
+         * buscar. Tres clics hasta lo que vino a hacer.
+         */
+        $pais = $request->query('pais');
+        $paisId = null;
 
-        $ciudades = Cache::remember($clave, now()->addMinutes(15), function () use ($q) {
+        if (is_string($pais) && $pais !== '') {
+            $paisId = Pais::byUrl($pais)->value('id');
+
+            // Un slug de pais que no existe no puede devolver el mundo entero.
+            if ($paisId === null) {
+                return response()->json([]);
+            }
+        }
+
+        $clave = 'buscador.ciudades.'.md5(Ciudad::normalizar($q).'|'.($paisId ?? ''));
+
+        $ciudades = Cache::remember($clave, now()->addMinutes(15), function () use ($q, $paisId) {
+            /*
+             * `tiene_calles` no es de adorno: es lo que mira
+             * `rutaDeLaFicha()`. Sin la columna en el SELECT el cast la daba
+             * por falsa y la ruta volvía null para toda ciudad —Calgary, con
+             * 8.014 calles, incluida—, así que el enlace a la ficha no
+             * apareció nunca en la home.
+             *
+             * El `slug` de la provincia no va acá: es un accessor sobre
+             * `nombre`, no una columna.
+             */
             return Ciudad::buscar($q)
+                ->when($paisId, fn ($consulta) => $consulta->where('pais_id', $paisId))
                 ->with(['provincia:id,nombre', 'pais:id,nombre,url'])
                 ->limit(8)
                 ->get([
                     'id', 'nombre', 'alias', 'url', 'centro_x', 'centro_y', 'zoom',
-                    'visitas', 'fcode', 'provincia_id', 'pais_id',
+                    'visitas', 'fcode', 'tiene_calles', 'provincia_id', 'pais_id',
                 ])
                 ->map(fn (Ciudad $c) => [
                     'id' => $c->id,
@@ -213,6 +247,17 @@ class BuscadorController extends Controller
 
         // Los datos importados usan el guion como separador en algunas calles.
         $nombreCalle = Busqueda::limpiar(str_replace('-', ' ', $datos['nombre_calle']));
+
+        /*
+         * Y en español se expande la abreviatura del tipo de vía: quien tipea
+         * `cl 13` en Soacha está buscando la misma calle que quien tipea
+         * `Calle 13`, y sin esto entran como dos filas distintas. Es el
+         * problema que limpió la migración `2026_09_18_130000` —60 filas
+         * fusionadas— y esta línea es la que evita que vuelva.
+         */
+        $pais = Ciudad::whereKey($datos['ciudad_id'])->value('pais_id');
+        $nombreCalle = TipoDeVia::normalizar($nombreCalle, $pais);
+
         $compacto = Busqueda::compactar($nombreCalle);
 
         if ($compacto === '') {
@@ -234,6 +279,21 @@ class BuscadorController extends Controller
 
         $request->session()->put($claveSesion, true);
 
+        $this->anotarCalle($ciudadId, $nombreCalle, $compacto);
+
+        return response()->noContent();
+    }
+
+    /**
+     * Suma uno al contador de una calle, o la da de alta, y le devuelve la
+     * página a la ciudad si no la tenía.
+     *
+     * Lo comparten `registrar()` —el POST que dispara elegir una calle de la
+     * lista— y `direccion()` —el que geocodifica—. Lo que NO comparten es el
+     * deduplicado: uno tiene sesión y el otro no.
+     */
+    private function anotarCalle(int $ciudadId, string $nombreCalle, string $compacto): void
+    {
         DB::transaction(function () use ($ciudadId, $nombreCalle, $compacto) {
             $existente = fn () => Busqueda::where('ciudad_id', $ciudadId)
                 ->where('nombre_calle_compacto', $compacto);
@@ -288,8 +348,68 @@ class BuscadorController extends Controller
          * the first and you start it", que quedaría desmentido.
          */
         Cache::forget("lugar.ciudad.{$ciudadId}.calles");
+    }
 
-        return response()->noContent();
+    /**
+     * Geocodifica una dirección y, si existe, la suma a la lista de la ciudad.
+     *
+     * Es la función principal del sitio: calle + altura sobre el mapa. Devuelve
+     * siempre 200 —también cuando no encuentra nada— porque "no existe esa
+     * altura" no es un error de la petición sino una respuesta.
+     *
+     * POST /api/direcciones
+     */
+    public function direccion(Request $request, Nominatim $nominatim): JsonResponse
+    {
+        $datos = $request->validate([
+            'ciudad_id' => ['required', 'integer', 'exists:ciudades,id'],
+            'calle' => ['required', 'string', 'max:255'],
+            'altura' => ['required', 'string', 'max:20'],
+        ]);
+
+        $ciudad = Ciudad::with(['pais:id,nombre', 'provincia:id,nombre'])->findOrFail($datos['ciudad_id']);
+
+        $calle = Busqueda::limpiar(str_replace('-', ' ', $datos['calle']));
+
+        // Igual que en `registrar()`: `cl 13` y `Calle 13` son la misma calle.
+        $calle = TipoDeVia::normalizar($calle, $ciudad->pais_id);
+        $encontrada = $nominatim->direccion($ciudad, $calle, $datos['altura']);
+
+        if ($encontrada === null) {
+            return response()->json(['encontrada' => false]);
+        }
+
+        /*
+         * La calle se guarda recién acá: el requisito es que entre a la lista
+         * solo si la dirección existe de verdad. Es la diferencia con el sitio
+         * viejo, que guardaba antes de preguntar y por eso dejó la lista de
+         * Calgary con entradas como "st", "ave" y "2".
+         *
+         * Deduplicado por IP y no por sesión: esta ruta corre en el grupo
+         * público, sin sesión, porque es la que se usa desde la ficha de la
+         * ciudad —la página que recibe el tráfico de Google— y esa página tiene
+         * que salir sin cookie para ser cacheable. `Cache::add` es atómico, así
+         * que vale como candado.
+         */
+        $compacto = Busqueda::compactar($calle);
+
+        if ($compacto !== '') {
+            $candado = 'direccion.'.sha1($request->ip().'|'.$ciudad->id.'|'.$compacto);
+
+            if (Cache::add($candado, true, now()->addDay())) {
+                $this->anotarCalle($ciudad->id, $calle, $compacto);
+            }
+        }
+
+        return response()->json([
+            'encontrada' => true,
+            'lat' => $encontrada['lat'],
+            'lon' => $encontrada['lon'],
+            'etiqueta' => $encontrada['etiqueta'],
+            // La ficha puede haber nacido con este guardado: la ciudad pasa a
+            // tener página en cuanto alguien encuentra una calle acá.
+            'ruta' => $ciudad->fresh()->rutaDeLaFicha(),
+        ]);
     }
 
     /** Clave de caché del listado de calles. Compartida para que no se desfase. */

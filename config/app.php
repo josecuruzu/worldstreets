@@ -56,6 +56,23 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Host canónico
+    |--------------------------------------------------------------------------
+    |
+    | El dominio real del sitio, independiente de APP_URL. Existe porque el
+    | Laravel se publica primero en un dominio de pruebas con el corpus entero
+    | adentro: contra este valor se escriben los canonical y los <loc> de los
+    | sitemaps, y cualquier host que no coincida sale con X-Robots-Tag: noindex.
+    |
+    | Vacío apaga el mecanismo, que es lo correcto en desarrollo. Ver
+    | App\Support\Canonico y App\Http\Middleware\HostCanonico.
+    |
+    */
+
+    'canonical_host' => env('CANONICAL_HOST'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |

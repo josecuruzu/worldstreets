@@ -37,12 +37,35 @@ export default {
 
                 // Texto
                 ink: '#1b1917',     // el negro de base cálida, nunca #000 para leer
-                ash: '#8f8f8f',     // pistas: placeholders y ayudas
+                /*
+                 * Ash era #8f8f8f y no pasaba WCAG AA: 2,92:1 sobre cream y
+                 * 3,23:1 sobre paper, cuando el mínimo para texto normal es
+                 * 4,5:1. Lighthouse lo marcaba en la ficha de ciudad sobre
+                 * cuatro elementos, y no es un tecnicismo: Ash es el color de
+                 * las cifras de cobertura y de los subtítulos, o sea de datos
+                 * que hay que poder leer.
+                 *
+                 * #6e6e6e es el gris MÁS CLARO que llega a 4,5:1 sobre los dos
+                 * fondos (4,61 y 5,10). Se eligió el mínimo a propósito: el
+                 * sistema usa Ash para bajar la jerarquía, y oscurecerlo de
+                 * más lo convierte en tinta.
+                 */
+                ash: '#6e6e6e',     // pistas: placeholders y ayudas
                 iron: '#222222',    // texto dentro de los campos
 
                 // Cromáticos
                 lavender: '#9894a8',   // bordes y hairlines, nunca texto
-                periwinkle: '#4b72f3', // la única acción primaria por pantalla
+                /*
+                 * Era #4b72f3 y el texto blanco encima daba 4,20:1, por
+                 * debajo del 4,5 que pide WCAG AA. Es el color del botón
+                 * primario, o sea del único llamado a la acción de cada
+                 * pantalla: si hay un texto que tiene que leerse, es ese.
+                 *
+                 * #476ce7 es el mismo tono y la misma saturación con el valor
+                 * un 5% más bajo — el ajuste más chico que llega a 4,60:1. A
+                 * ojo no se distingue del anterior.
+                 */
+                periwinkle: '#476ce7', // la única acción primaria por pantalla
                 violet: '#2b3ea7',     // enlaces
             },
 

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Ciudad;
 use App\Models\Pais;
 use App\Models\Provincia;
+use App\Support\Idioma;
 use Illuminate\Http\Response;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -42,12 +43,15 @@ class SitemapController extends Controller
     /** Doce horas: la lista se mueve cuando alguien busca una calle nueva. */
     private const HORAS_DE_CACHE = 12;
 
+    /** @var list<string>|null */
+    private ?array $slugsEnEspanol = null;
+
     /**
      * El índice: un archivo de lugares y uno de ciudades por país.
      */
     public function index(): Response
     {
-        $paises = Cache::remember('sitemap.paises', now()->addHours(self::HORAS_DE_CACHE), fn () => $this->paisesConCiudades());
+        $paises = Cache::remember('sitemap.paises.v2', now()->addHours(self::HORAS_DE_CACHE), fn () => $this->paisesConCiudades());
 
         $mapas = $paises
             ->map(fn (string $url) => route('sitemap.pais', $url))
@@ -62,7 +66,7 @@ class SitemapController extends Controller
      */
     public function lugares(): Response
     {
-        $urls = Cache::remember('sitemap.lugares', now()->addHours(self::HORAS_DE_CACHE), function () {
+        $urls = Cache::remember('sitemap.lugares.v2', now()->addHours(self::HORAS_DE_CACHE), function () {
             $paises = $this->paisesConCiudades();
 
             $provincias = Provincia::query()
@@ -70,7 +74,11 @@ class SitemapController extends Controller
                 ->with('pais:id,url')
                 ->get(['id', 'nombre', 'pais_id'])
                 ->filter(fn (Provincia $provincia) => $provincia->pais?->url !== null)
-                ->map(fn (Provincia $provincia) => route('provincia', [$provincia->pais->url, $provincia->slug]));
+                ->flatMap(fn (Provincia $provincia) => $this->enLosDosIdiomas(
+                    'provincia',
+                    [$provincia->pais->url, $provincia->slug],
+                    $provincia->pais->url
+                ));
 
             /*
              * `unknown-region` no es una fila de `provincias`: es el cajón de
@@ -79,7 +87,7 @@ class SitemapController extends Controller
              * quedara fuera sus ciudades no tendrían quién las enlace desde acá.
              */
             return $paises
-                ->map(fn (string $url) => route('pais', $url))
+                ->flatMap(fn (string $url) => $this->enLosDosIdiomas('pais', [$url], $url))
                 ->merge($provincias)
                 ->merge($this->regionesDesconocidas())
                 ->values();
@@ -96,7 +104,7 @@ class SitemapController extends Controller
         $modelo = Pais::byUrl($pais)->firstOrFail(['id', 'url']);
 
         $urls = Cache::remember(
-            "sitemap.ciudades.{$modelo->id}",
+            "sitemap.ciudades.{$modelo->id}.v2",
             now()->addHours(self::HORAS_DE_CACHE),
             fn () => Ciudad::query()
                 ->where('pais_id', $modelo->id)
@@ -104,7 +112,11 @@ class SitemapController extends Controller
                 ->with('provincia:id,nombre')
                 ->orderByDesc('population')
                 ->get(['id', 'nombre', 'alias', 'pais_id', 'provincia_id'])
-                ->map(fn (Ciudad $ciudad) => route('ciudad', [$modelo->url, $ciudad->provincia_slug, $ciudad->segmento]))
+                ->flatMap(fn (Ciudad $ciudad) => $this->enLosDosIdiomas(
+                    'ciudad',
+                    [$modelo->url, $ciudad->provincia_slug, $ciudad->segmento],
+                    $modelo->url
+                ))
                 ->values()
         );
 
@@ -157,8 +169,55 @@ class SitemapController extends Controller
             ->whereIn('id', $paises)
             ->pluck('url')
             ->filter()
-            ->map(fn (string $url) => route('provincia', [$url, Ciudad::PROVINCIA_DESCONOCIDA]))
+            ->flatMap(fn (string $url) => $this->enLosDosIdiomas(
+                'provincia',
+                [$url, Ciudad::PROVINCIA_DESCONOCIDA],
+                $url
+            ))
             ->values();
+    }
+
+    /**
+     * Una URL, o las dos cuando el país también se publica en español.
+     *
+     * Las dos versiones van en el mismo sitemap y no en uno aparte. Un
+     * `sitemap-es.xml` sería un archivo más que descubrir para un rastreador
+     * que hace 240 peticiones diarias, y no aporta nada: lo que empareja las
+     * dos versiones es el `hreflang` de cada página, no el archivo donde se
+     * declaran.
+     *
+     * Son ~2.381 URLs más sobre las 20.495 que ya había.
+     *
+     * @param  array<int, string>  $parametros
+     * @return list<string>
+     */
+    private function enLosDosIdiomas(string $ruta, array $parametros, string $slugDelPais): array
+    {
+        $urls = [route($ruta, $parametros)];
+
+        if (in_array($slugDelPais, $this->slugsEnEspanol(), true)) {
+            $urls[] = route(Idioma::PREFIJO.'.'.$ruta, $parametros);
+        }
+
+        return $urls;
+    }
+
+    /**
+     * Los slugs de los países que se publican en español.
+     *
+     * Se resuelven una vez por petición: la lista es de 21 ids y el sitemap
+     * de Canadá la consultaría 4.045 veces.
+     *
+     * @return list<string>
+     */
+    private function slugsEnEspanol(): array
+    {
+        return $this->slugsEnEspanol ??= Pais::query()
+            ->whereIn('id', Idioma::PAISES)
+            ->pluck('url')
+            ->filter()
+            ->values()
+            ->all();
     }
 
     private function xml(mixed $vista): Response

@@ -6,7 +6,11 @@ use App\Models\Busqueda;
 use App\Models\Ciudad;
 use App\Models\Pais;
 use App\Models\Provincia;
+use App\Support\Canonico;
+use App\Support\Idioma;
+use App\Support\PrecargaDelMapa;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
@@ -39,72 +43,167 @@ class LugaresController extends Controller
     {
         $pais = Pais::byUrl($pais)->with('continente')->firstOrFail();
 
-        $provincias = Cache::remember(
-            "lugar.pais.{$pais->id}.provincias",
+        $this->soloDondeHayVersion($pais->id);
+
+        /*
+         * Una sola consulta para toda la cobertura del país: calles por ciudad,
+         * y de ahí se derivan en PHP el total, las ciudades con lista, el
+         * reparto por provincia y las mejor cubiertas. Para Canadá son 4.045
+         * filas —285 ms— y antes hacían falta dos pasadas sobre `busquedas`
+         * para sacar menos información.
+         */
+        $cobertura = Cache::remember(
+            "lugar.pais.{$pais->id}.cobertura.v2",
             now()->addDay(),
-            fn () => $this->provinciasConSusCiudades($pais)
+            fn () => $this->coberturaDelPais($pais)
         );
 
-        $destacadas = Ciudad::query()
-            ->where('pais_id', $pais->id)
-            // Solo las que tienen página: enlazar a una ficha que responde 410
-            // es mandar al visitante y al rastreador contra una pared.
-            ->conCalles()
-            // La provincia va en la URL de cada ficha, así que se trae de una
-            // en vez de una consulta por ciudad.
-            ->with('provincia:id,nombre')
-            ->orderByDesc('population')
-            ->limit(self::DESTACADAS)
-            ->get(['id', 'nombre', 'alias', 'population', 'provincia_id', 'fcode']);
+        $provincias = Cache::remember(
+            "lugar.pais.{$pais->id}.provincias.v2",
+            now()->addDay(),
+            fn () => $this->provinciasConSusCiudades($pais, $cobertura['callesPorProvincia'])
+        );
 
         return view('lugares.pais', [
             'pais' => $pais,
             'provincias' => $provincias,
-            'destacadas' => $destacadas,
-        ] + Cache::remember(
-            "lugar.pais.{$pais->id}.cifras",
-            now()->addDay(),
-            fn () => $this->cifrasDelPais($pais)
-        ));
+            'ciudadesConCalles' => $cobertura['ciudadesConCalles'],
+            'callesDelPais' => $cobertura['callesDelPais'],
+            /*
+             * Las ciudades se ordenan por CANTIDAD DE CALLES y no por
+             * población, que es lo que hacían antes.
+             *
+             * El visitante que llega acá desde `reverse address lookup canada`
+             * viene a encontrar una dirección, y para eso una ciudad con 8.014
+             * calles le sirve y una más poblada con 3 no. Toronto tiene más
+             * gente que Calgary; Calgary tiene la lista.
+             */
+            'destacadas' => $this->ciudadesPorCobertura($cobertura['mejorCubiertas']),
+            'alternos' => Idioma::alternos('pais', [$pais->url], $pais->id),
+        ]);
     }
 
     /**
-     * Las cifras que encabezan la ficha de país y la ciudad mejor cubierta.
+     * La cobertura real del país, en una consulta.
      *
-     * Son las que le dicen al visitante si su lugar va a aparecer: el dataset
-     * tiene 4.697.141 ciudades y 18.361 con alguna calle, así que "13.247
-     * ciudades" sin más contexto promete lo que no hay.
+     * Son las cifras que le dicen al visitante si su lugar va a aparecer: el
+     * dataset tiene 4.697.141 ciudades y 18.359 con alguna calle, así que
+     * "13.247 ciudades" sin más contexto promete lo que no hay.
      *
-     * @return array{ciudadesConCalles: int, callesDelPais: int, mejorCubierta: ?object}
+     * Guarda ids y números, nunca modelos: un modelo en la caché queda viejo y
+     * pesa varias veces más que su id.
+     *
+     * @return array{
+     *     ciudadesConCalles: int,
+     *     callesDelPais: int,
+     *     callesPorProvincia: array<string, int>,
+     *     mejorCubiertas: list<array{id: int, calles: int}>
+     * }
      */
-    private function cifrasDelPais(Pais $pais): array
+    private function coberturaDelPais(Pais $pais): array
     {
-        $porCiudad = DB::table('busquedas as b')
-            ->join('ciudades as c', function ($join) use ($pais) {
-                $join->on('c.id', '=', 'b.ciudad_id')->where('c.pais_id', '=', $pais->id);
-            })
-            ->selectRaw('b.ciudad_id, count(*) as calles')
-            ->groupBy('b.ciudad_id')
+        /*
+         * Primero las ciudades del país que tienen calles, y recién después el
+         * conteo. El orden importa y es lo que hace barata la consulta.
+         *
+         * Antes esto era un solo JOIN filtrado por `pais_id`, y ahí MySQL
+         * elegía recorrer TODAS las ciudades del país para ir a buscar sus
+         * calles: 102.328 filas en Japón, de las que solo 224 tienen alguna.
+         * El filtro que faltaba es `tiene_calles`, que ya está adentro del
+         * índice `ciudades_pais_poblacion` (pais_id, tiene_calles, population):
+         * con él la primera consulta devuelve las 224 directas.
+         *
+         * Medido contra la base real, con el buffer pool caliente:
+         *
+         *     Japón     400 ms → 77 ms
+         *     Canadá    457 ms → 217 ms   (4.045 ciudades, el peor caso)
+         *     Austria   161 ms → 30 ms
+         *
+         * Forzar el orden del join con STRAIGHT_JOIN también ayuda, pero la
+         * mitad: 177 ms en Japón. Dos consultas le ganan a una porque la
+         * segunda ya no tiene que arrastrar `provincia_id` por el GROUP BY.
+         *
+         * `tiene_calles` es exactamente "tiene filas en busquedas" —
+         * verificado contra la base: cero ciudades descuadradas en cualquiera
+         * de los dos sentidos— y lo mantiene `BuscadorController::direccion()`
+         * en cada calle nueva. Además es la misma columna con la que se
+         * deciden el sitemap y el 410 de la regla de ciudad-con-contenido, así
+         * que la ficha de país ahora cuenta lo mismo que declara el sitemap.
+         */
+        $provinciaPorCiudad = DB::table('ciudades')
+            ->where('pais_id', $pais->id)
+            ->where('tiene_calles', true)
+            ->pluck('provincia_id', 'id');
+
+        if ($provinciaPorCiudad->isEmpty()) {
+            return [
+                'ciudadesConCalles' => 0,
+                'callesDelPais' => 0,
+                'callesPorProvincia' => [],
+                'mejorCubiertas' => [],
+            ];
+        }
+
+        $porCiudad = DB::table('busquedas')
+            ->whereIn('ciudad_id', $provinciaPorCiudad->keys())
+            ->selectRaw('ciudad_id, count(*) as calles')
+            ->groupBy('ciudad_id')
             ->orderByDesc('calles')
             ->get();
-
-        $mejor = $porCiudad->first();
 
         return [
             'ciudadesConCalles' => $porCiudad->count(),
             'callesDelPais' => (int) $porCiudad->sum('calles'),
-            'mejorCubierta' => $mejor
-                ? (object) [
-                    'ciudad' => Ciudad::with('provincia:id,nombre')->find($mejor->ciudad_id),
-                    'calles' => (int) $mejor->calles,
-                ]
-                : null,
+            'callesPorProvincia' => $porCiudad
+                ->groupBy(fn (object $fila) => $provinciaPorCiudad[$fila->ciudad_id] ?? null)
+                ->map(fn ($filas) => (int) $filas->sum('calles'))
+                ->all(),
+            'mejorCubiertas' => $porCiudad
+                ->take(self::DESTACADAS)
+                ->map(fn (object $fila) => ['id' => (int) $fila->ciudad_id, 'calles' => (int) $fila->calles])
+                ->values()
+                ->all(),
         ];
+    }
+
+    /**
+     * Hidrata las ciudades mejor cubiertas conservando ese orden.
+     *
+     * `whereIn` devuelve lo que el motor quiera, así que el orden se rearma acá
+     * con el de la lista que vino de la consulta de cobertura.
+     *
+     * @param  list<array{id: int, calles: int}>  $mejores
+     * @return \Illuminate\Support\Collection<int, object>
+     */
+    private function ciudadesPorCobertura(array $mejores): Collection
+    {
+        if ($mejores === []) {
+            return collect();
+        }
+
+        $ciudades = Ciudad::query()
+            ->whereIn('id', array_column($mejores, 'id'))
+            // La provincia va en la URL de cada ficha, así que se trae de una
+            // en vez de una consulta por ciudad.
+            ->with('provincia:id,nombre')
+            ->get(['id', 'nombre', 'alias', 'population', 'provincia_id', 'fcode'])
+            ->keyBy('id');
+
+        return collect($mejores)
+            ->filter(fn (array $fila) => $ciudades->has($fila['id']))
+            ->map(fn (array $fila) => (object) [
+                'ciudad' => $ciudades[$fila['id']],
+                'calles' => $fila['calles'],
+            ])
+            ->values();
     }
 
     public function provincia(string $pais, string $provincia): View
     {
         $pais = Pais::byUrl($pais)->firstOrFail();
+
+        $this->soloDondeHayVersion($pais->id);
+
         $provincia = $this->buscarProvincia($pais, $provincia);
 
         $ciudades = Ciudad::query()
@@ -122,6 +221,11 @@ class LugaresController extends Controller
             'nombreProvincia' => $provincia?->nombre ?: __('Unknown region'),
             'slugProvincia' => $provincia?->slug ?? Ciudad::PROVINCIA_DESCONOCIDA,
             'ciudades' => $ciudades,
+            'alternos' => Idioma::alternos(
+                'provincia',
+                [$pais->url, $provincia?->slug ?? Ciudad::PROVINCIA_DESCONOCIDA],
+                $pais->id
+            ),
         ]);
     }
 
@@ -140,8 +244,12 @@ class LugaresController extends Controller
             abort(404);
         }
 
+        $this->soloDondeHayVersion($modelo->pais?->id);
+
+        // El 301 del slug tiene que quedarse en el idioma en el que se pidió:
+        // mandar /es/... a la versión inglesa perdería el idioma en el camino.
         if ($modelo->segmento !== $ciudad) {
-            return redirect()->route('ciudad', [$pais, $provincia, $modelo->segmento], 301);
+            return redirect()->to(Idioma::url('ciudad', [$pais, $provincia, $modelo->segmento]), 301);
         }
 
         /*
@@ -166,6 +274,23 @@ class LugaresController extends Controller
             abort(410);
         }
 
+        return $this->ficha($modelo);
+    }
+
+    /**
+     * La ficha de una ciudad ya resuelta.
+     *
+     * Está separada de `ciudad()` porque hay dos caminos que llegan a la misma
+     * página: la URL normal, y `/r/{codigo}` —el enlace corto del botón de
+     * compartir—, que renderiza esta vista en vez de redirigir para que la
+     * dirección no aparezca en la barra del navegador. Ver
+     * `CompartirController`.
+     *
+     * @param  array{calle: string, altura: string}|null  $direccionInicial
+     *                                                                       la dirección que la página tiene que buscar sola al abrirse
+     */
+    public function ficha(Ciudad $modelo, ?array $direccionInicial = null): View
+    {
         /*
          * El índice A–Z es la jugada de contenido del proyecto: una ficha con
          * las calles que la gente buscó acá es una página sustancial, y sale
@@ -176,9 +301,11 @@ class LugaresController extends Controller
          * calle que no estaba.
          */
         $indice = Cache::remember(
-            "lugar.ciudad.{$modelo->id}.calles",
+            // v2: la clave cambia porque el índice cambió de forma — ahora
+            // agrupa por tipo de vía en los países hispanohablantes.
+            "lugar.ciudad.{$modelo->id}.calles.v2",
             now()->addHours(12),
-            fn () => Busqueda::indiceDeCiudad($modelo->id)
+            fn () => Busqueda::indiceDeCiudad($modelo->id, $modelo->pais?->id)
         );
 
         // El total real, no el que se muestra: cada letra lista hasta
@@ -208,7 +335,65 @@ class LugaresController extends Controller
             'totalCalles' => $total,
             'vecinas' => $vecinas,
             'nombresLocales' => $modelo->nombresLocales(),
+            /*
+             * En la página de un enlace compartido no van hreflang: la pareja
+             * de idiomas es de la ficha, no de `/r/{codigo}`, que no se
+             * indexa en ninguno de los dos.
+             */
+            'alternos' => $direccionInicial === null
+                ? Idioma::alternos(
+                    'ciudad',
+                    [$modelo->pais?->url, $modelo->provincia_slug, $modelo->segmento],
+                    $modelo->pais?->id
+                )
+                : [],
+            'canonical' => $direccionInicial === null
+                ? null
+                : Canonico::url(Idioma::url('ciudad', [
+                    $modelo->pais?->url, $modelo->provincia_slug, $modelo->segmento,
+                ])),
+            /*
+             * La dirección que llega por un enlace compartido. La vista la
+             * pasa al componente Alpine, que la busca al montarse.
+             *
+             * Y `compartido` marca la página para que salga con `noindex` y
+             * con el canonical apuntando a la ficha: `/r/{codigo}` no es una
+             * URL del sitio, es un mensaje de WhatsApp que resultó ser una
+             * página.
+             */
+            /*
+             * El tile del centro del mapa, para precargarlo desde la cabecera.
+             * Es el LCP de esta página y el navegador no lo descubre hasta que
+             * Leaflet se montó; ver `PrecargaDelMapa::tileCentral`. Se calcula
+             * acá y no en la vista porque es aritmética, no presentación.
+             */
+            'tilePrecargado' => PrecargaDelMapa::tileCentral(
+                (float) $modelo->centro_x,
+                (float) $modelo->centro_y,
+                (int) $modelo->zoom,
+            ),
+            'direccionInicial' => $direccionInicial,
+            'compartido' => $direccionInicial !== null,
         ]);
+    }
+
+    /**
+     * En español, solo los países que tienen versión en español.
+     *
+     * Sin esto, `/es/japan` devolvería la ficha de Japón con los textos de la
+     * plantilla traducidos y el contenido igual: una copia del corpus entero
+     * en otra URL, que es exactamente lo que dejó al sitio con 18,25 M de URLs
+     * y una penalización algorítmica. La versión en español existe para los 21
+     * países hispanohablantes y para nadie más.
+     *
+     * 404 y no 301 a la inglesa: un 301 invitaría a Google a descubrir y
+     * seguir 22.581 URLs en español que no queremos que existan.
+     */
+    private function soloDondeHayVersion(?string $paisId): void
+    {
+        if (Idioma::esEspanol() && ! Idioma::cubre($paisId)) {
+            abort(404);
+        }
     }
 
     /**
@@ -223,7 +408,10 @@ class LugaresController extends Controller
      *
      * @return list<array{nombre: string, slug: string, ciudades: int}>
      */
-    private function provinciasConSusCiudades(Pais $pais): array
+    /**
+     * @param  array<string, int>  $callesPorProvincia
+     */
+    private function provinciasConSusCiudades(Pais $pais, array $callesPorProvincia = []): array
     {
         $provincias = $pais->provincias()->orderBy('nombre')->get();
 
@@ -242,6 +430,9 @@ class LugaresController extends Controller
                 'nombre' => $provincia->nombre ?: $provincia->id,
                 'slug' => $provincia->slug,
                 'ciudades' => (int) ($ciudadesPorProvincia[$provincia->id] ?? 0),
+                // Las calles son el número que contesta la pregunta con la
+                // que el visitante llega: "¿va a estar mi dirección acá?".
+                'calles' => (int) ($callesPorProvincia[$provincia->id] ?? 0),
             ])
             ->all();
 
@@ -260,6 +451,7 @@ class LugaresController extends Controller
                 'nombre' => 'Unknown region',
                 'slug' => Ciudad::PROVINCIA_DESCONOCIDA,
                 'ciudades' => $sinProvincia,
+                'calles' => (int) ($callesPorProvincia["{$pais->id}.00"] ?? 0),
             ];
         }
 

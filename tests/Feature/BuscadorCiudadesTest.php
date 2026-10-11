@@ -158,6 +158,88 @@ class BuscadorCiudadesTest extends TestCase
             ->assertJsonCount(0);
     }
 
+    /**
+     * El bug que este caso fija no se veía: la sugerencia salía completa y
+     * correcta, solo `ruta` venía en null. Con eso el enlace a la ficha no
+     * apareció nunca en la home —ni para Calgary, que tiene 8.013 calles—,
+     * porque la columna `tiene_calles` que mira `rutaDeLaFicha()` no estaba en
+     * el SELECT del autocompletado y el cast la daba por falsa.
+     */
+    public function test_la_sugerencia_trae_la_ruta_de_la_ficha(): void
+    {
+        $this->crearCiudad(20, 'Rosario', 'rosario', 0, tieneCalles: true);
+
+        $this->getJson('/api/ciudades?q=Rosario')
+            ->assertOk()
+            ->assertJsonPath('0.ruta', url('/argentina/cordoba/rosario-20'));
+    }
+
+    /** Y sigue en null cuando la ciudad no tiene ficha, que es lo que evita
+     *  ofrecer un enlace a una página que responde 410. */
+    public function test_la_sugerencia_no_trae_ruta_sin_calles(): void
+    {
+        $this->crearCiudad(21, 'Villa Maria', 'villa maria', 0);
+
+        $this->getJson('/api/ciudades?q=Villa')
+            ->assertOk()
+            ->assertJsonPath('0.ruta', null);
+    }
+
+    /**
+     * `pais` acota el autocompletado a un país. Lo usa el buscador de la ficha
+     * de país, que antes no existía.
+     */
+    public function test_el_autocompletado_se_puede_acotar_a_un_pais(): void
+    {
+        $this->crearCiudad(30, 'London', 'london', 0);
+
+        DB::table('paises')->insert([
+            'id' => 'GB', 'nombre' => 'United Kingdom', 'url' => 'united-kingdom', 'continente_id' => 'SA',
+            'centro_x' => 54, 'centro_y' => -2, 'zoom' => 5,
+        ]);
+        DB::table('provincias')->insert([
+            'id' => 'GB.ENG', 'nombre' => 'England', 'url' => 'england', 'pais_id' => 'GB',
+            'centro_x' => 52, 'centro_y' => -1,
+        ]);
+        DB::table('ciudades')->insert([
+            'id' => 31, 'nombre' => 'London', 'nombre_min' => 'london', 'url' => 'london-england',
+            'fcode' => 'PPLC', 'pais_id' => 'GB', 'provincia_id' => 'GB.ENG', 'departamento_id' => 'GB.ENG.1',
+            'centro_x' => 51.5, 'centro_y' => -0.12,
+            'limite_sw_x' => 51.2, 'limite_sw_y' => -0.5,
+            'limite_ne_x' => 51.7, 'limite_ne_y' => 0.3,
+            'zoom' => 11, 'visitas' => 0,
+        ]);
+
+        // Sin filtro aparecen las dos.
+        $this->getJson('/api/ciudades?q=London')->assertOk()->assertJsonCount(2);
+
+        // Con filtro, solo la del país pedido.
+        $this->getJson('/api/ciudades?q=London&pais=argentina')
+            ->assertOk()
+            ->assertJsonCount(1)
+            ->assertJsonPath('0.pais', 'Argentina');
+    }
+
+    /** Un slug de país que no existe no puede devolver el mundo entero. */
+    public function test_un_pais_inexistente_no_devuelve_nada(): void
+    {
+        $this->crearCiudad(32, 'Rosario', 'rosario', 0);
+
+        $this->getJson('/api/ciudades?q=Rosario&pais=narnia')
+            ->assertOk()
+            ->assertJsonCount(0);
+    }
+
+    /** Y la caché no puede confundir el resultado acotado con el global. */
+    public function test_el_filtro_de_pais_no_comparte_cache_con_la_busqueda_global(): void
+    {
+        $this->crearCiudad(33, 'Parana', 'parana', 0);
+
+        $this->getJson('/api/ciudades?q=Parana')->assertOk()->assertJsonCount(1);
+        $this->getJson('/api/ciudades?q=Parana&pais=narnia')->assertOk()->assertJsonCount(0);
+        $this->getJson('/api/ciudades?q=Parana')->assertOk()->assertJsonCount(1);
+    }
+
     private function crearCiudad(
         int $id,
         string $nombre,
@@ -166,6 +248,7 @@ class BuscadorCiudadesTest extends TestCase
         ?string $fcode = 'PPL',
         ?int $population = null,
         ?string $alternatenames = null,
+        bool $tieneCalles = false,
     ): void {
         DB::table('ciudades')->insert([
             'id' => $id,
@@ -183,6 +266,7 @@ class BuscadorCiudadesTest extends TestCase
             'limite_ne_x' => -31.3, 'limite_ne_y' => -64.0,
             'zoom' => 13,
             'visitas' => $visitas,
+            'tiene_calles' => $tieneCalles,
         ]);
     }
 }

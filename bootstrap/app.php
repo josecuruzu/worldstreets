@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Middleware\BloqueaScrapers;
+use App\Http\Middleware\HostCanonico;
+use App\Http\Middleware\IdiomaPorDefecto;
 use App\Http\Middleware\RespuestaCacheable;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Foundation\Application;
@@ -34,6 +36,21 @@ return Application::configure(basePath: dirname(__DIR__))
          * dejaron $0,73 en un año.
          */
         $middleware->prepend(BloqueaScrapers::class);
+
+        /*
+         * El noindex del dominio de pruebas. Global y no en el grupo
+         * 'publico': tiene que cubrir cualquier ruta, incluidas las que
+         * aparezcan después, sin que nadie se acuerde de agregarlo.
+         */
+        $middleware->append(HostCanonico::class);
+
+        /*
+         * Y cada petición arranca en el idioma del sitio. El prefijo `/es` lo
+         * cambia después, desde el grupo de rutas. Ver `IdiomaPorDefecto`: el
+         * idioma sobrevive entre peticiones en cualquier runtime que no mate
+         * el proceso.
+         */
+        $middleware->append(IdiomaPorDefecto::class);
 
         $middleware->group('publico', [
             AddQueuedCookiesToResponse::class,

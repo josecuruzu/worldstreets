@@ -5,8 +5,10 @@ namespace App\Http\Controllers;
 use App\Models\Ciudad;
 use App\Models\Pais;
 use App\Models\Provincia;
+use App\Support\Idioma;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\App;
 
 /*
  * Las URLs del sitio viejo en CakePHP.
@@ -73,6 +75,8 @@ class LegadoController extends Controller
             ->with(['pais', 'provincia'])
             ->first();
 
+        $this->conservarElEspanol($peticion, $ciudad?->pais?->id);
+
         $destino = $ciudad?->rutaDeLaFicha();
 
         if ($destino === null) {
@@ -99,7 +103,9 @@ class LegadoController extends Controller
             return $this->sinDestino();
         }
 
-        return redirect()->route('pais', [$pais->url], 301);
+        $this->conservarElEspanol($peticion, $pais->id);
+
+        return redirect()->to(Idioma::url('pais', [$pais->url]), 301);
     }
 
     /**
@@ -118,7 +124,36 @@ class LegadoController extends Controller
             return $this->sinDestino();
         }
 
-        return redirect()->route('provincia', [$provincia->pais->url, $provincia->slug], 301);
+        $this->conservarElEspanol($peticion, $provincia->pais->id);
+
+        return redirect()->to(Idioma::url('provincia', [$provincia->pais->url, $provincia->slug]), 301);
+    }
+
+    /**
+     * Una URL `/esp/...` aterriza en la versión en español, no en la inglesa.
+     *
+     * Es la parte cara de este controlador. **El 35,8% de los clics del sitio
+     * entra hoy por una URL `/esp/`** —2.479 de 6.930— y esas páginas rankean
+     * en posición 6-12 para consultas en español porque su título coincide con
+     * la consulta: `calles de marianao` contra "Calles de Marianao". Mandarlas
+     * todas a la ficha inglesa conserva el 301 y el contenido, y tira a la
+     * basura la coincidencia, que es lo único que las hace rankear.
+     *
+     * Solo se conserva el español donde hay versión en español. Un
+     * `/esp/view/find/maps/address/calgary-alberta-canada` —que existe, con 46
+     * impresiones— va a la ficha inglesa, porque Canadá no está entre los 21
+     * países que publicamos en español y una ficha en español de Calgary no
+     * existe.
+     *
+     * Los otros tres idiomas del Cake no tienen adónde ir: `/fra/` son 401
+     * clics, `/ita/` 63 y `/por/` 46, contra 2.479 del español. Siguen cayendo
+     * en la versión inglesa a propósito.
+     */
+    private function conservarElEspanol(Request $peticion, ?string $paisId): void
+    {
+        if ($peticion->route('idioma') === 'esp' && Idioma::cubre($paisId)) {
+            App::setLocale(Idioma::ESPANOL);
+        }
     }
 
     /**

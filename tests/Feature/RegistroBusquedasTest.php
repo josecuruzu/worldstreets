@@ -153,8 +153,16 @@ class RegistroBusquedasTest extends TestCase
 
         $busqueda = Busqueda::sole();
 
-        $this->assertSame('Av San Martín', $busqueda->nombre_calle);
-        $this->assertSame('AvSanMartín', $busqueda->nombre_calle_compacto);
+        /*
+         * «avenida» y no «Av»: la ciudad de este test es argentina, y desde
+         * `TipoDeVia` las abreviaturas del tipo de vía se expanden al guardar
+         * en los países hispanohablantes. Es a propósito — `Av San Martín` y
+         * `Avenida San Martín` son la misma calle y entraban como dos filas —
+         * y no tiene nada que ver con lo que este caso mira, que es la
+         * limpieza de invisibles. Se muestra titulada: «Avenida San Martín».
+         */
+        $this->assertSame('avenida San Martín', $busqueda->nombre_calle);
+        $this->assertSame('avenidaSanMartín', $busqueda->nombre_calle_compacto);
     }
 
     public function test_un_nombre_que_es_solo_basura_invisible_no_se_guarda(): void

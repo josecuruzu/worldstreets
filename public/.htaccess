@@ -23,3 +23,35 @@
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteRule ^ index.php [L]
 </IfModule>
+
+# ─────────────────────────────────────────────────────────────────────────
+# Compresión y caché de los assets compilados.
+#
+# Lighthouse sobre la ficha de ciudad marcaba dos cosas que no son del código
+# sino del servidor: 237 KB sin comprimir (1.650 ms) y tres recursos de
+# /build sin política de caché. El servidor de desarrollo de PHP no hace
+# ninguna de las dos; LiteSpeed sí, pero solo si se le dice.
+#
+# Los archivos de /build llevan hash en el nombre —app-DKSoAo3F.js— así que
+# cambiar el contenido cambia la URL: se pueden cachear para siempre sin
+# riesgo de servir una versión vieja. Eso es lo que significa `immutable`.
+# ─────────────────────────────────────────────────────────────────────────
+
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/plain text/css text/xml
+    AddOutputFilterByType DEFLATE application/javascript application/x-javascript
+    AddOutputFilterByType DEFLATE application/json application/xml
+    AddOutputFilterByType DEFLATE image/svg+xml
+</IfModule>
+
+<IfModule mod_headers.c>
+    # Los assets con hash: un año e inmutables.
+    <FilesMatch "\.(js|css|woff2|png|jpg|jpeg|gif|webp|avif)$">
+        Header set Cache-Control "public, max-age=31536000, immutable"
+    </FilesMatch>
+
+    # El favicon y el robots.txt NO llevan hash: un día alcanza.
+    <FilesMatch "^(favicon\.(ico|svg)|robots\.txt)$">
+        Header set Cache-Control "public, max-age=86400"
+    </FilesMatch>
+</IfModule>

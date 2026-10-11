@@ -13,6 +13,9 @@
 
 ---
 
+> El registro de la conversación de trabajo —qué se decidió, por qué, y qué
+> salió mal en el camino— está en [`notas/sesion-2026-09-17.md`](notas/sesion-2026-09-17.md).
+
 ## 0. Qué se hizo en la segunda sesión
 
 | paso | estado | dónde |
@@ -26,6 +29,217 @@
 | 5 — Bloquear scrapers | **[HECHO]** | `BloqueaScrapers`, `robots.txt` |
 | 5 — Columnas muertas | **[HECHO]** | migración `2026_09_17_160000` |
 | 6 — Páginas de calle | pendiente | después de medir en Search Console |
+| Diseño pampam.city | **[HECHO]** | `tailwind.config.js`, `app.css`, home, país, provincia, ciudad |
+| **Direcciones en el mapa (Nominatim)** | **[HECHO]** | `app/Support/Nominatim.php`, `POST /api/direcciones`, Leaflet |
+
+### La función principal, que se había quedado afuera
+
+El sitio es un buscador de direcciones: **calle + altura sobre el mapa**, vía
+Nominatim. Es lo que hacen el Cake y calles-argentinas, y lo que la migración no
+había traído: el buscador resolvía el *nombre* de la calle contra la tabla
+`busquedas` y el mapa seguía encuadrando la ciudad entera.
+
+Cómo quedó, y en qué se aparta del Cake a propósito:
+
+- **La geocodificación es del servidor**, no del navegador. La política de
+  Nominatim pide un `User-Agent` que identifique la aplicación, y `User-Agent`
+  es una cabecera prohibida para `fetch()`: el navegador la descarta en
+  silencio, así que el Cake y calles-argentinas le están pegando anónimos. Del
+  lado del servidor además se cachea (30 días los aciertos, 12 h los fallos) y
+  se respeta el techo de 1 consulta/segundo con un `RateLimiter` global.
+- **La calle se guarda solo si la dirección existe.** El Cake dispara el POST
+  que guarda y la consulta a Nominatim en paralelo, así que guarda igual cuando
+  no encuentra nada: de ahí salieron las entradas `st`, `ave`, `Calgary` y `2`
+  que tiene la lista de Calgary. Acá las dos cosas van en la misma petición y el
+  guardado depende del resultado.
+- **La consulta va con `bounded=1`**, no solo con el `viewbox`. Sin eso el
+  recuadro de la ciudad es una preferencia y no un límite, y `14 Ave SW` se
+  resuelve en otro continente.
+- **El mapa es nuestro**: un Leaflet sobre los tiles de OSM. Antes era un iframe
+  de `openstreetmap.org/export`, que es la página de ellos metida en la nuestra
+  y cuyo marcador no se puede mover sin recargar el iframe entero. Cuesta 42 KB
+  gzip de JS (83 → 235 KB sin comprimir), y es el precio de la función que da de
+  comer.
+- **El endpoint va sin sesión ni CSRF**, en el grupo `publico`. La razón es
+  dónde se usa: la ficha de la ciudad es la página que recibe el tráfico de
+  Google y tiene que salir sin cookie para ser cacheable, así que se renderiza
+  sin sesión y no hay token que ponerle. Lo que lo protege es el `throttle:20,1`
+  y el deduplicado por IP (`Cache::add`), no un token — no hay usuarios, no hay
+  nada que falsificar en nombre de nadie. `RespuestaCacheable` ahora deja pasar
+  los POST sin tocarlos, que antes no lo hacía.
+
+Config en `.env`: `NOMINATIM_URL`, `NOMINATIM_AGENTE`, `NOMINATIM_TIMEOUT`. La
+URL es configurable para poder apuntar a una instancia propia si el tráfico
+crece.
+
+### Contenido para el visitante de EE.UU. (puntos 1 a 5 del análisis)
+
+El público objetivo, medido: el export de Search Console filtrado a Estados
+Unidos (`analytics/…Performance-on-Search-2026-09-17(1)/`, 16 meses, 1.000
+consultas, 79 clics, 18.338 impresiones).
+
+| patrón de consulta | consultas | clics | impresiones |
+|---|---|---|---|
+| `{país} address lookup / finder / search` | 198 | **60** | 4.969 |
+| `reverse address lookup {país}` | 44 | 39 | 1.460 |
+| zip / postal / PIN code | 41 | **0** | 528 |
+| en español (`calles de…`, `direcciones de…`) | 18 | 7 | 280 |
+| phone / name / who lives there | 12 | 2 | 348 |
+
+Dos cosas que no estaban anotadas. Para EE.UU. la familia `address lookup`
+pesa **más** que `reverse address lookup` (el 73% del HANDOFF es global). Y las
+41 consultas de código postal dan 528 impresiones con **cero clics**: demanda
+medida que el sitio no atendía.
+
+Escritorio es donde está el desperdicio: 105.867 impresiones al **0,36%** de
+CTR en posición 21,5, contra 3,4% en móvil en posición 15,7.
+
+**La demanda y la cobertura no coinciden**, y esto manda sobre el contenido:
+
+| país | clics EE.UU. | impresiones | ciudades con calles | calles |
+|---|---|---|---|---|
+| Canada | 24 | 1.393 | 4.045 | **471.503** |
+| Philippines | 6 | 487 | 518 | 1.764 |
+| United Kingdom | 2 | 984 | 1.125 | 3.534 |
+| Australia | 3 | 587 | 733 | 1.268 |
+| India | 4 | 304 | 422 | 2.971 |
+| Mexico | 2 | 393 | 504 | 1.949 |
+
+Y donde hay cobertura no hay demanda: Austria 91.094, Kosovo 18.457, Slovakia
+16.179, Iceland 14.229. Cero consultas estadounidenses. De 252 países, 124
+tienen menos de 100 calles y solo 36 pasan las 1.000. **Canadá es el único
+lugar donde el activo y la demanda se cruzan.**
+
+#### Lo que se hizo
+
+1. **Restaurada la frase que rankea en los títulos, y escritas las meta
+   descriptions.** El rediseño había reemplazado
+   `Reverse Address Lookup Free in {lugar} | WSG` por
+   `Canada — regions, cities and streets`, y se había llevado **todas** las
+   descripciones: no quedaba una sola `<meta name="description">` en el sitio.
+   Nada de eso da error ni se ve en pantalla. Lo fija
+   `MetadatosDeBusquedaTest`, que existe por eso.
+   El sufijo de marca pasó de ` - worldstreets.global` (21 caracteres) a
+   ` | worldstreets` (15): Google corta cerca de los 60 y lo que tiene que
+   sobrevivir es la frase del principio.
+2. **Buscador en la ficha de país** (`buscadorDePais` en `app.js`, y
+   `?pais=` en `GET /api/ciudades`). Era la página más eficiente del sitio
+   —246 URLs, 2.951 clics— y la más pasiva: el que llegaba de
+   `reverse address lookup canada` tenía que elegir región, después ciudad, y
+   recién ahí podía buscar. El h1 también recuperó la frase.
+3. **Bloque "How an address works in {país}"**
+   (`app/Support/FormatoDeDireccion.php`, 21 países). Las líneas de una
+   dirección completa, el código postal con ejemplo y formato, y qué se
+   equivoca un remitente de afuera. Es lo que atiende las 528 impresiones de
+   código postal, y tiene la propiedad que la ficha de país necesitaba:
+   **vale igual con 380 calles que con 471.503**. Donde el dato no es firme el
+   bloque no aparece — inventar el formato postal de un país es peor que
+   callarse, y este sitio viene de una penalización algorítmica.
+   ⚠️ Los 21 países salieron del conocimiento del modelo. **[HECHO el
+   18-sep] Los 21 verificados contra fuente oficial**: las fichas de la UPU
+   —lo que cada operador postal le declara a la Unión Postal Universal, con
+   ejemplos comentados campo por campo—, más Canada Post, Royal Mail,
+   Australia Post y el documento DHRUVA de India Post.
+
+   **Diez de los 21 tenían mal la posición de algún campo**, casi siempre la
+   del código postal, que es el dato exacto por el que llega esa consulta:
+   - **PH**, **MX**, **CU**: el código **abre** la última línea, no la cierra
+     (`2000 PAMPANGA`, `44100 GUADALAJARA, JAL`, `CP 10600 CIUDAD HABANA`).
+     En México el estado va además abreviado, y en Cuba el código lleva las
+     letras `CP` adelante.
+   - **CA**: la unidad va **antes** del número de calle y con guion
+     (`10-123 MAIN ST NW`), no como sufijo.
+   - **IN**: el PIN va en su propia línea debajo de la ciudad.
+   - **JP** y **CN**: el error más grande. Las líneas estaban en el orden
+     japonés/chino —de lo grande a lo chico, con el destinatario al final—,
+     pero **en alfabeto latino la dirección se escribe al revés**, y quien lee
+     esta ficha escribe en latino. En China faltaba directamente el código
+     postal.
+   - **ZA**: la línea de ciudad sobra. El correo sudafricano la pide **solo si
+     no hay código postal**.
+   - **ES**: la provincia va siempre en su línea, repita o no el nombre de la
+     ciudad (el ejemplo de Correos es `45012 TOLEDO` / `TOLEDO`).
+   - **PK**: casa y calle van en líneas separadas.
+
+   Los once restantes estaban bien y ganaron lo que el operador pide y
+   faltaba: CEDEX en Francia (si se borra, el envío pierde ese servicio), el
+   prefijo `D-` que Alemania **no** quiere delante del código, las mayúsculas
+   obligatorias italianas, el guion brasileño antes del estado, las regiones
+   que Nueva Zelanda pide no usar. Jamaica ya estaba bien en lo menos obvio de
+   la tabla: **no tiene código postal**.
+
+   Las fuentes y qué se corrigió en cada país están en el docblock de la clase.
+   Dos avisos: las fichas de la UPU **están fechadas** (la filipina es de
+   2004), así que valen para la posición de los campos y no para sus listas de
+   provincias; y lo de los distritos numerados de Colombo en **LK** es uso
+   corriente, no un dato de la ficha.
+4. **Las ciudades de la ficha de país se ordenan por CALLES, no por
+   población.** Para quien vino a encontrar una dirección, una ciudad con
+   8.014 calles sirve y una más poblada con 3 no: Toronto tiene más gente que
+   Calgary, Calgary tiene la lista. Las regiones declaran sus calles en vez de
+   su cantidad de ciudades.
+5. Una sola consulta da toda la cobertura del país (`coberturaDelPais()`) en
+   vez de dos que devolvían menos. Peor caso en frío: Japón 1,35 s (231.970
+   calles); cacheado un día y la página sale por el borde.
+
+#### Lo que queda decidido y no hecho
+
+- **No** se importan calles de EE.UU.: el estadounidense busca fuera.
+- **No** se vuelve a los cinco idiomas. Precio medido: las 18 consultas en
+  español desde EE.UU. rankean en posiciones 7-15 con CTR de 6-16%, mejor que
+  casi todo lo demás. Es la diáspora hispana y el corte a inglés la pierde.
+  ⚠️ **Revisado el 18-sep: la decisión era correcta pero el número estaba
+  incompleto.** Esas 18 consultas son la rodaja estadounidense del top-1000;
+  el español entero es el **35,8% de los clics del sitio**. Se sigue sin
+  volver a los cinco idiomas, y se vuelve a uno. Ver §14.
+
+### Identidad y convención anglo
+
+- **La marca.** El header tenía un cuadradito negro con las letras `WS`, que no
+  dicen nada. Ahora es el mapa plegado con el pin —la silueta del favicon del
+  sitio viejo, que era lo único que ahí funcionaba como identidad— redibujado en
+  la paleta del sistema, más el wordmark. En `partials/logo.blade.php` y en
+  `public/favicon.svg`, el mismo dibujo. El sitio viene de una caída algorítmica
+  y va a cambiar de dominio: conviene que el que ya lo conocía lo reconozca.
+- **Fuera el enlace "Search" del header**, que llevaba a la home desde la home.
+  En su lugar va la línea que el Cake usaba de brand, "Worldwide address
+  lookup": hace el trabajo que ese enlace no hacía, que es decirle al que llega
+  de Google qué es esto. No se puso un "Countries" porque no existe una página
+  índice de países que enlazar.
+- **La altura va ADELANTE de la calle.** En inglés la dirección se escribe
+  `6455 Macleod Trail SE`, y el Cake ya daba vuelta los dos campos según el
+  idioma: número primero para `eng` y `fra`, calle primero para `esp`, `por` e
+  `ita` (`Ciudades/plano.ctp`, líneas 86-101). La migración se había quedado con
+  el orden español en un sitio que se publica solo en inglés y cuyo mercado
+  anglo es el 83,1% de los ingresos. Cambia en los dos formularios, en
+  `direccionCompleta` y en el parámetro `street` que va a Nominatim — que además
+  documenta ese orden.
+- **Elegida la ciudad, el foco y la pantalla se van al formulario de la
+  dirección** (`enfocarLaDireccion()`). Antes el cursor se quedaba en el campo
+  de la ciudad y el bloque de la calle aparecía fuera del viewport: había que
+  darse cuenta solo de que había que bajar y volver a hacer clic.
+- **"No cities matched that name" era un falso negativo.** El cartel se deducía
+  de `!mostrarSugerencias`, así que cerrar la lista con un clic afuera lo
+  mostraba teniendo ocho resultados detrás. Ahora hay una bandera propia,
+  `sinCiudades`, que solo la pone la respuesta vacía.
+
+### Tres bugs del rediseño, encontrados probando el local
+
+- **El buscador de la ficha de ciudad mandaba a la home.** Era un
+  `<form method="get">` con `street`, `number` y `city` en la query string:
+  tres parámetros que `home()` no lee. Buscar una calle desde la página que
+  recibe el tráfico de Google devolvía la home vacía. Ahora la ficha busca en su
+  propia página, con el mismo componente.
+- **En la home el resultado caía abajo del mapa.** El mapa iba entre los campos
+  y la lista, 460 px de alto: se tipeaba calle y altura, la búsqueda respondía
+  bien y en pantalla no se movía nada porque el resultado quedaba fuera del
+  viewport. Se leía como que el buscador no funcionaba — y así lo reportó el
+  dueño. El mapa se fue a la columna de al lado.
+- **El enlace a la ficha no aparecía nunca.** `rutaDeLaFicha()` mira
+  `tiene_calles`, y esa columna no estaba en el `SELECT` del autocompletado, así
+  que el cast la daba por falsa: `ruta` venía en `null` para toda ciudad,
+  Calgary con 8.014 calles incluida. No se veía de ninguna forma; lo fija
+  `BuscadorCiudadesTest::test_la_sugerencia_trae_la_ruta_de_la_ficha`.
 
 Resultado medible del conjunto:
 
@@ -36,7 +250,7 @@ Resultado medible del conjunto:
 | Páginas públicas cacheables | ninguna | todas menos la home |
 | `ciudades` en disco | 1.880 MB | **1.523 MB** |
 | Buscador, término de 2 letras | 668-1.039 ms | **84-123 ms** |
-| Suite | 59 tests | **158 tests, 421 assertions** |
+| Suite | 59 tests | **288 tests, 799 assertions** |
 
 ### La restricción que define el despliegue
 
@@ -47,12 +261,30 @@ en otra carpeta y sobre otro dominio para probar, y después al dominio original
 - El día del corte el Cake deja de existir. Una URL vieja sin destino no cae en
   ningún fallback: es un 404. Por eso el mapa de redirecciones se hizo **antes**
   y está verificado contra las 1.920 URLs con tráfico.
-- **El dominio de pruebas es el riesgo caro.** Si `APP_URL` apunta ahí, de ahí
-  salen los canonical y los `<loc>` de los sitemaps, y no produce ningún síntoma
-  visible. En un sitio que viene de una caída algorítmica, publicar una segunda
-  copia indexable del corpus es lo peor que puede pasar. Hace falta un
-  `canonical_host` en config y un `X-Robots-Tag: noindex` cuando el host no
-  coincide — **está sin hacer**. Y no bloquearlo por robots.txt: lo que se
+- **El dominio de pruebas era el riesgo caro — [HECHO].** Si `APP_URL` apunta
+  ahí, de ahí salen los canonical y los `<loc>` de los sitemaps, y no produce
+  ningún síntoma visible. En un sitio que viene de una caída algorítmica,
+  publicar una segunda copia indexable del corpus es lo peor que puede pasar.
+  Resuelto con `CANONICAL_HOST` (`config/app.php`), `App\Support\Canonico` y el
+  middleware `HostCanonico`, en el stack **global** para que cubra también las
+  rutas que aparezcan después:
+  - El `<link rel="canonical">` del layout y los `<loc>` de los sitemaps se
+    escriben siempre contra ese host. Los `<loc>` se reescriben **en la vista**,
+    no en el controlador, porque las listas están cacheadas 12 horas y el host
+    quedaría congelado adentro del caché.
+  - Los **enlaces de navegación no** se tocan: siguen siendo del host que sirvió
+    la página, o el dominio de pruebas no se puede recorrer.
+  - Cualquier host que no coincida responde `X-Robots-Tag: noindex, follow`.
+    `follow` a propósito: la copia tiene que dejarse recorrer para que el
+    rastreador llegue a los canonical de adentro.
+  - Del canonical sobrevive solo `page` de la query string; los `utm_*` y demás
+    colapsan en la misma URL.
+  - `CANONICAL_HOST` vacío apaga todo, que es el caso de local.
+  - ⚠️ El `Sitemap:` de `public/robots.txt` sigue con el dominio escrito a mano
+    (es un archivo estático, no pasa por PHP). El día que cambie el dominio hay
+    que tocarlo ahí también.
+
+  Y no bloquear el dominio de pruebas por robots.txt: lo que se
   bloquea no se rastrea, y lo que no se rastrea nunca lee el noindex.
 
 ---
@@ -97,8 +329,11 @@ del sitio lo genera la propia gente que lo usa**. No es un padrón de calles.
 |---|---|
 | Hosting | **cPanel compartido** (usuario `josecuruzu`) — **no se controla `my.cnf`** |
 | Servidor web | LiteSpeed |
+| PHP de destino | **8.4** — el local es 8.4.20, así que el proyecto se escribió y se probó ahí. `composer.json` pide `^8.2` y no hay ninguna deprecación de 8.4 en el código |
+| Extensión a vigilar | **`intl`**. No la pide ningún paquete de Composer, así que `check-platform-reqs` no la ve, pero `Busqueda::limpiar()` usa `\Normalizer` y corre en las DOS rutas públicas que guardan una calle. Desde el 18-sep la llamada va envuelta en `class_exists()`: sin `intl` se pierde la unificación de acentos, pero el buscador no se cae |
 | Base | **MySQL 8.0.46** Linux (¡no MariaDB!) |
-| App actual | **CakePHP**, online en https://worldstreets.global/ |
+| App actual | **CakePHP 3.6.10** (de 2018, `php >= 5.6`), online en https://worldstreets.global/ |
+| ⚠️ Choque de PHP | **El Cake 3.6 no arranca en PHP 8** — el soporte llegó en la rama 4.2 — y el Laravel necesita 8.2+. **No pueden compartir la versión de PHP.** Durante el despliegue el Laravel va en un subdominio con su propio PHP 8.4 (MultiPHP Manager fija la versión por dominio) y el dominio principal no se toca hasta el corte. Ese es el motivo real por el que el subdominio temporal deja de ser opcional |
 | Destino | El Laravel va **al mismo dominio** → es una **migración**, no un lanzamiento |
 
 > **Divergencia MariaDB/MySQL**: el desarrollo es contra MariaDB 11.6 y producción
@@ -120,7 +355,7 @@ QUEUE_CONNECTION=database
 ## 3. Estado del repositorio
 
 Rama **`import-datos-argentina`**, 8 commits sobre `main`, pusheada a `origin`.
-Sin PR abierto. Suite: **158 tests, 421 assertions, en verde** (~20 s).
+Sin PR abierto. Suite: **288 tests, 799 assertions, en verde** (~43 s).
 
 ### Sin commitear (trabajo real, no basura)
 
@@ -148,6 +383,13 @@ Sin PR abierto. Suite: **158 tests, 421 assertions, en verde** (~20 s).
                   BloqueoDeScrapers,RedireccionesDelSitioViejo}Test.php
 ?? tests/Unit/NormalizacionCanadienseTest.php
 ```
+
+Nuevos del 18-sep: `app/Support/Canonico.php`,
+`app/Http/Middleware/HostCanonico.php`, `tests/Feature/HostCanonicoTest.php`,
+`resources/views/partials/ad-slot.blade.php`, `tests/Feature/AnunciosTest.php`,
+y los retoques de `config/app.php`, `config/services.php`, `bootstrap/app.php`,
+`.env.example`, el layout, la ficha de ciudad, `LugaresController` y las dos
+vistas de `sitemaps/`.
 
 El dueño pidió expresamente **no commitear todavía**.
 
@@ -808,13 +1050,23 @@ filas) es la lista de lo que **no hay que romper**.
 
 </details>
 
-### Paso 6 — Páginas de calle (solo después de medir)
+### Paso 6 — Páginas de calle — **EVALUADO EL 18-SEP: NO TODAVÍA**
 
 `/{pais}/{provincia}/{ciudad}/{calle}`, con el campo de altura adentro. **La altura
 no es una página** (son infinitas y todas vacías): se resuelve en el cliente.
 
-Arrancar por las **283 ciudades canadienses con +200 calles**, medir la tasa de
-indexación en Search Console, y expandir solo si aguanta.
+El plan decía arrancar por las 283 ciudades canadienses con +200 calles. Medido
+contra la base, hoy son 295 ciudades y **409.541 URLs: ×18 el sitio actual**.
+Con +1.000 calles son 345.020 (×15) y con +2.000, 223.492 (×10) — subir el
+umbral casi no ayuda porque el volumen está en las ciudades grandes.
+
+Multiplicar por 18 un dominio que viene de una caída algorítmica, con 0,14% de
+indexación y al que se le acaba de pedir que reevalúe 22.581 URLs, es repetir
+el error que causó la penalización. **Requisito previo: ver en Search Console
+si las 22.581 se indexan.**
+
+Y antes de esto conviene el arreglo del índice A–Z, que sube el valor de la
+página sin agregar ninguna URL — ver §11.
 
 ### Tareas sueltas
 
@@ -829,8 +1081,8 @@ indexación en Search Console, y expandir solo si aguanta.
   producción antes de tratarlo como pendiente.
 - Borrar la base `josecuruzu_ws_prod` (−1,8 GB). Es tarea de panel, no de
   código.
-- **Pendiente y nuevo: el `canonical_host`.** Ver §0 — el dominio de pruebas
-  puede indexarse y duplicar el corpus.
+- **[HECHO] El `canonical_host`.** Ver §0: `CANONICAL_HOST`, `Canonico`,
+  `HostCanonico` y `HostCanonicoTest` (17 casos).
 - **Pendiente: las columnas `limite_*`** (~90 MB), el día que el Cake se apague.
 
 ---
@@ -1021,6 +1273,24 @@ queda viejo.
   con Tailwind 3.4.17 vía `postcss.config.js`). Mezcla de algún `breeze:install`.
 - **La base dice "Orange Free State"**; esa provincia sudafricana se llama **Free
   State** desde 1994. Probablemente haya más nombres de GeoNames envejecidos.
+- **El índice A–Z esconde parte de las calles donde el tipo de vía va
+  adelante.** Resuelto para el español el 18-sep (ver §17); **sigue abierto
+  para el francés**: Montréal muestra 687 de 5.790 porque hay 3.319 calles bajo
+  la «R» de *Rue* y 1.545 bajo la «A» de *Avenue*. La maquinaria ya está
+  —`TipoDeVia` y el agrupado de `Busqueda::indiceDeCiudad`—; falta la lista de
+  tipos franceses y decidir con qué criterio se aplica, porque el francés en
+  este sitio es Quebec adentro de Canadá y no un país entero.
+  En inglés no hace falta: el tipo va al final del nombre.
+- **La ficha de una ciudad grande son 58 pantallas de scroll en un teléfono**
+  (48.636 px en Calgary, después de pasar a dos columnas; eran 95 pantallas).
+  La salida medida es plegar cada letra en un `<details>`: 5 pantallas. Se
+  descartó por ahora para no cambiarle la estructura a la página que recibe el
+  tráfico mientras Google la reevalúa. ~~Consecuencia: la unidad de AdSense del
+  final está debajo de esas 58 pantallas~~ — **atendido el 20-sep con las
+  unidades intercaladas en el índice; ver §18.** La del final sigue enterrada
+  en móvil y ahora vale sobre todo en escritorio.
+- ~~**La ficha de país no tiene unidad de AdSense.**~~ — **[HECHO el 20-sep]**,
+  ver §18.
 - **433.217 grupos de URLs de ciudad duplicadas** (578 "Krajan" en East Java). Por
   eso la ficha se resuelve por id.
 - **307 búsquedas huérfanas** (heredadas del import).
@@ -1032,7 +1302,7 @@ queda viejo.
 
 ```bash
 # Suite completa (SQLite en memoria, no toca MySQL)
-php artisan test                     # esperado: 158 tests, 421 assertions
+php artisan test                     # esperado: 288 tests, 799 assertions
 
 # Estilo, solo lo tocado
 ./vendor/bin/pint --dirty
@@ -1064,9 +1334,528 @@ los contadores `Handler_`**, así que para ese camino hay que medir tiempo.
   (Statistics Canada publica la National Road Network y el Address Register bajo
   Open Government Licence, que además servirían para **validar alturas** sobre las
   ciudades canadienses que ya tienen tráfico).
-- **Si se conservan los cinco idiomas del sitio viejo en las redirecciones** o se
-  manda todo a la versión en inglés con 301.
+- ~~**Si se conservan los cinco idiomas del sitio viejo en las redirecciones**~~
+  — **contestado el 18-sep, ver §14.** Se conserva uno: el español. Los otros
+  tres (`fra`, `ita`, `por`) van a la versión inglesa con 301.
 - **Cuándo cortar** del CakePHP al Laravel. Recomendado: staging primero, verificar
   redirecciones contra el CSV de páginas, y recién después el cambio. Aunque el
   riesgo hoy es bajo: ya casi no queda tráfico que perder, lo que **habilita una
   reestructuración agresiva** que hace un mes habría sido temeraria.
+
+---
+
+## 14. El español
+
+> Escrito el 18-sep-2026. Los números salen del export de Search Console de 16
+> meses (`analytics/…Performance-on-Search-2026-09-17*/`) y de la base real.
+
+### El dato que obligó a revisar una decisión tomada
+
+El HANDOFF decía "no se vuelve a los cinco idiomas" y lo apoyaba en 18
+consultas en español desde EE.UU. Eso es cierto y es una rodaja: el top-1000 de
+consultas **filtrado a Estados Unidos**. Mirando el sitio entero, partido por
+el prefijo de idioma de la URL:
+
+| prefijo | URLs | clics | % | impresiones |
+|---|---|---|---|---|
+| sin prefijo (inglés) | 462 | 3.941 | 56,9% | 244.914 |
+| **`/esp/`** | **388** | **2.479** | **35,8%** | **104.041** |
+| `/fra/` | 108 | 401 | 5,8% | 14.725 |
+| `/ita/` | 24 | 63 | 0,9% | 2.065 |
+| `/por/` | 18 | 46 | 0,7% | 1.126 |
+
+Y por país de origen: los hispanohablantes son el 32,6% de los clics, con
+**Cuba segunda (832)** detrás de Estados Unidos (1.026), España cuarta (422) y
+Venezuela séptima (284).
+
+La decisión de no volver a cinco idiomas sigue en pie —eran 18,25 M de URLs—.
+La de tratar al español como uno de esos cinco, no. **Un idioma más, no cinco.**
+
+### Los dos segmentos, que son distintos
+
+**A — el que ya funciona.** Fichas de ciudad latinoamericanas en posición 6-12
+con CTR de 5-10%:
+
+| URL del Cake | clics | impresiones |
+|---|---|---|
+| `/esp/…/marianao-havana-cuba` | 157 | 4.984 |
+| `/esp/…/barquisimeto-lara-venezuela` | 110 | 1.666 |
+| `/esp/…/cerro-havana-cuba` | 82 | 2.183 |
+| `/esp/…/soacha-cundinamarca-colombia` | 76 | 5.290 |
+| `/esp/…/matanzas-matanzas-cuba` | 62 | 1.707 |
+
+**B — el hispanohablante en EE.UU., que hoy vale cero.** Desde Estados Unidos:
+
+| destino de la consulta | consultas | clics | impresiones | CTR | posición |
+|---|---|---|---|---|---|
+| → EE.UU./Canadá | 61 | **1** | 1.369 | 0,07% | **45,2** |
+| → otros países | 89 | 11 | 1.222 | 0,90% | 41,0 |
+
+`direccion de estados unidos` (85 impr, pos 48), `direcciones usa` (69, pos
+45), `direcciones de canada` (51, pos 50). **El problema del segmento B no es
+el idioma de la página: es que el sitio está en la posición 45.** Traducir algo
+que nadie ve no cambia nada.
+
+### Lo que se hizo — **[HECHO el 18-sep]**
+
+Un prefijo `/es`, acotado a los 21 países hispanohablantes:
+
+```
+1.990 ciudades con calles
+  367 provincias
+   21 países
+──────────────────────────
+~2.381 URLs  →  +10,5% sobre las 22.581
+```
+
+No es un espejo del corpus. `/es/japan` responde **404**, no una traducción
+vacía: `LugaresController::soloDondeHayVersion()`. Es lo que impide repetir la
+forma en que el sitio se ganó la penalización.
+
+Las piezas:
+
+| qué | dónde |
+|---|---|
+| La política: qué países, hreflang, helpers | `app/Support/Idioma.php` |
+| El prefijo `/es` y su middleware | `routes/public.php`, `EnEspanol` |
+| El reseteo de idioma por petición | `IdiomaPorDefecto` (stack global) |
+| Los textos | `lang/en/lugares.php`, `lang/es/lugares.php` |
+| Formato de dirección en español (CU, ES, MX, PR) | `FormatoDeDireccion::EN_ESPANOL` |
+| `/esp/…` del Cake → `/es/…` | `LegadoController::conservarElEspanol()` |
+| Las dos versiones en los sitemaps | `SitemapController::enLosDosIdiomas()` |
+| 19 casos | `tests/Feature/VersionEnEspanolTest.php` |
+
+Seis decisiones que no son obvias:
+
+1. **Los títulos no son la traducción del inglés.** El inglés titula
+   `Reverse Address Lookup Free in {lugar}` porque esa frase es el 73% de sus
+   clics. En español esa frase no existe: lo medido son dos familias,
+   `calles de {lugar}` y `direcciones de {lugar}`. De ahí
+   `Calles y direcciones de {lugar}`, que entra en los 60 caracteres con el
+   sufijo de marca y cubre las dos.
+2. **Español neutro, no rioplatense.** El público es cubano, colombiano,
+   venezolano y español; Argentina no está entre los diez primeros. Tuteo, sin
+   voseo, sin "vosotros", y "calle y número" en vez de "altura".
+3. **El prefijo de ruta y no la cabecera `Accept-Language`.** `/es/cuba` es
+   otra URL, así que la respuesta sigue saliendo sin cookie y sin `Vary`, que
+   es lo que permite cachearla en el borde. Negociar por cabecera la partiría
+   por navegador y le serviría al rastreador algo distinto que al visitante.
+4. **El orden de los campos del buscador cambia con el idioma.** En inglés
+   "6455 Macleod Trail SE" y el número va primero; en español "Calle 23 456" y
+   va después. El Cake ya hacía esta vuelta. Está en la vista y en
+   `direccionCompleta` de `app.js`, que lee el idioma de `<html lang>`. El
+   `street` que se le manda a Nominatim va siempre con el número adelante, que
+   es lo que documenta su API.
+5. **Los números se escriben distinto.** `Idioma::numero()`: 2.065 y no 2,065.
+   Las cifras de cobertura son el argumento de la página y escritas al revés
+   dicen otra cosa.
+6. **Solo el español.** `/fra/` son 401 clics, `/ita/` 63 y `/por/` 46, contra
+   2.479. Siguen cayendo en la versión inglesa con 301.
+
+### La trampa que costó encontrar
+
+**`App::setLocale()` también escribe `app.locale` en la configuración.** Un
+middleware que "restablece el idioma leyendo la configuración" no hace nada:
+después de una petición en español la configuración ya dice `es`. Por eso
+`IdiomaPorDefecto` usa la constante `Idioma::INGLES`.
+
+Y el idioma **sobrevive entre peticiones**: con PHP-FPM el proceso muere y
+vuelve solo, pero en los tests —que reusan la aplicación— una petición a
+`/es/japan` dejaba la siguiente a `/japan` con los números a la española y los
+campos dados vuelta. Hoy en producción no pasa, pero que no pase porque el
+proceso se muere es una casualidad del despliegue, no una garantía.
+
+### Lo que queda, en orden
+
+1. **Los nombres de región salen de GeoNames en inglés.** La ficha de Marianao
+   titula "Marianao, **Havana**" en la versión en español, y la consulta
+   medida es `calles del cerro **la habana**` (17 clics). `provincias.nombre`
+   no tiene columna en español y `alternatenames` de la ciudad tampoco trae
+   etiqueta de idioma. **Es el hueco más caro que queda del español**, y toca
+   justo el país que más clics trae. Hay que decidir de dónde sale el nombre
+   antes de escribirlo.
+2. **La home en español.** `/es` hoy redirige 301 a la home inglesa. La home es
+   3 URLs y 154 clics de 6.930, así que no urge, pero es la página que el
+   buscador usa de entrada.
+3. **El buscador de ciudades, en español.** El endpoint `/api/ciudades`
+   devuelve `ruta` con `Ciudad::rutaDeLaFicha()`, que ya respeta el idioma en
+   curso; falta que la ficha de país en español le pase el idioma y que los
+   textos del componente Alpine salgan traducidos.
+4. **Los Ángeles y Miami** — el segmento B. Es el único activo real que el
+   sitio tiene para el hispanohablante en EE.UU.: **10.721 calles en Los
+   Ángeles**, el tercer corpus urbano del sitio detrás de Calgary (8.015) y
+   Ottawa (8.006), en la ciudad con más hispanohablantes del país; y 450 en
+   Miami, donde `direcciones en miami` ya rankea en posición 21,4 y
+   `direcciones de miami` en 25,2 — las dos únicas consultas de ese segmento a
+   distancia de pelea. Meterlos implica abrir `US` en `Idioma::PAISES`, que
+   son 440 ciudades, o llevar una lista explícita de ciudades. **Queda
+   decidido que va con lista explícita**, para no abrir 440 URLs por dos.
+5. El resto del sitio (home, FAQ, textos del layout) sigue en inglés en las
+   dos versiones. El pie y la cabecera son cuatro frases.
+
+---
+
+## 15. Compartir una dirección
+
+> 18-sep-2026. Portado de calles-argentinas-v2, adaptado al espacio de URLs de
+> este sitio.
+
+El problema: alguien encuentra "6455 Macleod Trail SE" y lo quiere mandar por
+WhatsApp. **No había nada que pegar.** Una dirección no tiene URL propia acá y
+no la va a tener — la altura es infinita y una página por altura es lo que dejó
+al sitio con 18,25 M de URLs descubiertas y 26.335 indexadas.
+
+El enlace corto le da URL a algo que no es una página:
+
+| pieza | dónde |
+|---|---|
+| Tabla y modelo | `enlaces_compartidos`, `EnlaceCompartido` |
+| `POST /api/compartir` y `GET /r/{codigo}` | `CompartirController` |
+| El botón, con sus dos respaldos | `lugares/ciudad.blade.php`, `compartir()` en `app.js` |
+| Protección del POST sin CSRF | `MismoOrigen` (portado del hermano) |
+| 12 casos | `tests/Feature/CompartirTest.php` |
+
+Las decisiones:
+
+- **`/r/{codigo}` renderiza, no redirige.** Devuelve la ficha con la dirección
+  ya buscada. Así la dirección no aparece nunca en la barra del navegador —que
+  es la mitad del punto— y se ahorra un salto de red en el móvil de quien abre
+  el mensaje.
+- **No agrega ni una URL indexable.** La página sale con
+  `<meta name="robots" content="noindex,follow">`, su canonical apunta a la
+  ficha de la ciudad y no lleva hreflang. No entra en ningún sitemap.
+- **Tres niveles de degradación**: `navigator.share` (el teléfono, donde está
+  WhatsApp) → portapapeles → el enlace a la vista para copiar a mano. El
+  último parece exagerado y no lo es: el portapapeles rechaza sin gesto del
+  usuario y no existe sobre http. Probado en Chrome: el respaldo se usó.
+- **Se reusa el enlace** de una dirección ya compartida mientras siga vigente.
+  El botón es gratis de apretar y tiene que dar siempre lo mismo.
+- **Caducan a los 90 días**, y la ciudad se revalida al abrir: si perdió su
+  ficha por la regla de ciudad-con-contenido, el enlace manda a la home.
+- **El idioma viaja en el enlace.** Quien recibe uno de un amigo cubano abre la
+  página en español.
+- `POST /api/compartir` escribe una fila y la página que lo llama no tiene
+  sesión, así que no hay token CSRF: lo protege `MismoOrigen` más el throttle.
+  **`POST /api/direcciones` todavía no lo lleva** y es el candidato obvio.
+
+---
+
+## 16. Performance
+
+> Medido con Lighthouse 12 el 18-sep-2026, móvil, sobre la ficha de Marianao.
+
+### Lo primero: cómo medir
+
+`php artisan serve` **no comprime nada**, y eso solo vale 237 KB y ~1,6 s en el
+informe. Medir contra él es medir el servidor de desarrollo, no el sitio. La
+primera cifra de 75 estaba dominada por eso.
+
+Para medir como mide producción hace falta un proxy que comprima delante. Dos
+trampas que costaron un rato:
+
+1. **`pkill` no mata procesos en Windows.** El proxy viejo siguió vivo, el
+   nuevo falló con `EADDRINUSE` y dos mediciones salieron contra el proxy sin
+   arreglar. Se mata con
+   `Get-NetTCPConnection -LocalPort N | Stop-Process -Id $_.OwningProcess`.
+2. **Un proxy en otro puerto es otro origen**: los módulos se bloquean por CORS
+   y Lighthouse mide una página sin JavaScript — con un score mejor y falso. Se
+   detecta mirando `errors-in-console`, que tiene que dar 0.
+
+### El resultado
+
+| | antes | después |
+|---|---|---|
+| Performance | 75 | **94-95** |
+| Accesibilidad | 93 | **97** |
+| First Contentful Paint | 2,8 s | **1,6 s** |
+| Largest Contentful Paint | 5,2 s | **2,8 s** |
+| Total Blocking Time | 100 ms | 60-130 ms |
+| JS del bundle principal | 238 KB | **89 KB** |
+
+### Los cambios
+
+1. **Leaflet se carga con `import()` dinámico.** Era un import normal, así que
+   sus 150 KB bajaban en TODAS las páginas cuando el mapa existe en una.
+   Lighthouse: 152 KB de 238 sin usar. Ahora la home y las fichas de país no lo
+   piden **en absoluto** — verificado, cero peticiones.
+2. **La hoja de Google Fonts no bloquea el render.** Era el único recurso
+   bloqueante y costaba 833 ms. Se pide como `media="print"` y se pasa a `all`
+   al cargar, con `<noscript>` de respaldo.
+3. **El tile del centro se precarga desde la cabecera.** El LCP de esta página
+   es un PNG de OpenStreetMap, y el 73% de su tiempo era *load delay*: el
+   navegador no sabía que existía hasta que Leaflet se montaba. El tile se
+   calcula en PHP con la misma proyección Web Mercator que usa Leaflet
+   (`PrecargaDelMapa::tileCentral`, con test propio). Load delay: 2.531 → 1.201 ms.
+4. **`modulepreload` del chunk de Leaflet**, solo en la ficha de ciudad.
+5. **`preconnect` a `tile.openstreetmap.org`**.
+6. **Compresión y caché en `public/.htaccess`**: los assets de `/build` llevan
+   hash, así que van con `immutable` a un año.
+7. **Contraste.** `ash` pasó de `#8f8f8f` (2,92:1 sobre cream) a `#6e6e6e`
+   (4,61:1) y `periwinkle` de `#4b72f3` (4,20:1 con texto blanco) a `#476ce7`
+   (4,60:1). Los dos son **el ajuste más chico que llega a WCAG AA**, mismo
+   tono y saturación. Es un cambio visual: se revierte con dos líneas en
+   `tailwind.config.js`.
+
+### Lo que queda y por qué no se toca
+
+- **Los tiles de OSM** son PNG de 256 px de un tercero: "next-gen formats" y
+  "low resolution" no se pueden arreglar desde acá.
+- **"Links rely on color to be distinguishable"** pide subrayar los enlaces. El
+  sistema de diseño los quita a propósito en todo el sitio; es una decisión de
+  diseño, no un descuido.
+- **El índice A–Z sigue pesando**: 2.378 `<li>` en la ficha de Calgary. No
+  aparece en Lighthouse porque no bloquea nada, pero son 58 pantallas de scroll
+  (ver §11).
+
+---
+
+## 17. El índice por tipo de vía
+
+> 18-sep-2026. Es el paso previo al paso 6 que anotaba §11: sube el valor de la
+> ficha de ciudad **sin agregar una sola URL**.
+
+### El problema, medido
+
+Agrupar las calles por su letra inicial funciona en inglés, donde el tipo de
+vía va al final — `Macleod Trail SE` — y la primera letra es la del nombre
+real. En español va adelante, y eso apila todo bajo la misma letra:
+
+| país | calles | letra dominante | % |
+|---|---|---|---|
+| **Colombia** | 3.412 | **C** (*Calle*, *Carrera*) | **81%** |
+| España | 1.357 | C | 42% |
+| Cuba | 2.065 | C | 29% |
+| Venezuela | 476 | C | 29% |
+| México | 1.949 | C | 26% |
+
+Y abajo había un problema de datos: en Colombia el 70% de las calles empieza
+con una **abreviatura** —`cl` 38%, `cr` 32%, `tv`, `dg`, `vda`— que convive con
+la forma larga. `Cl 13` y `Calle 13` en Soacha son la misma calle en dos filas.
+
+⚠️ **Dos números que di mal en el camino, corregidos:**
+
+1. «710 grupos duplicados en Colombia» — **eran 60.** La consulta que dio 710
+   agrupaba quitando el tipo de vía, así que contaba `Calle 13` y `Carrera 13`
+   como la misma calle. En la cuadrícula colombiana son dos calles distintas
+   que se cruzan.
+2. «La ficha colombiana publicaba el 4% de sus calles» — **publicaba el 18%.**
+   El 4% salía de dividir el tope de 120 por las 2.762 calles de la «C», pero
+   el tope es por letra y las otras letras también publicaban.
+
+### Lo que se hizo
+
+**Primero los datos** (`2026_09_18_130000`): expande la abreviatura del tipo de
+vía en los 21 países hispanohablantes. 4.009 filas candidatas, **60 fusionadas**
+—gana la más buscada, el id menor desempata, el ganador se queda con la suma—,
+**suma de contadores intacta en 10.241**, respaldo en
+`storage/app/backups/tipos-de-via-*.json`. `BuscadorController` normaliza
+también al escribir, así que no vuelve a entrar.
+
+**Después el índice** (`Busqueda::indiceDeCiudad`): en los países
+hispanohablantes agrupa por tipo de vía y no por letra. Los tipos van primero
+—«Calle», «Carrera»— y adentro las filas se ordenan **como números**: 1, 2, 3,
+10, 10A, 11. El tipo no se repite en cada fila: el grupo ya se llama así.
+
+| ciudad | calles | antes | ahora |
+|---|---|---|---|
+| Bogotá | 374 | 76% | **99%** |
+| Montevideo | 4.223 | 51% | **63%** |
+| Medellín | 2.751 | 18% | **23%** |
+| Buenos Aires, Madrid, Quito, Tijuana | — | 82-100% | igual |
+
+Las ocho ciudades hispanohablantes más grandes, en conjunto: **54% → 62%**. La
+ganancia en porcentaje es modesta; la de forma no, porque una dirección
+colombiana ES «Calle 45» y ahora la lista se recorre como se habla.
+
+Canadá no cambia: 30% en Calgary antes y después.
+
+### Lo que NO se toca, y está verificado contra filas reales
+
+- **Los títulos.** `dr carlos salvagno`, `gral artigas`, `sr …` parecen
+  abreviaturas y son tratamientos.
+- **`carrer`**, catalán, no una abreviatura de «calle».
+- **Una palabra sola**: `cl` sin nada detrás.
+- **Los países no hispanohablantes.**
+
+### ⚠️ La trampa de Blade que costó una hora
+
+**En una vista, o todos los bloques de PHP son de la forma larga, o todos de la
+de una línea. Mezclarlos rompe el archivo en silencio.**
+
+Blade extrae los bloques `@php`…`@endphp` con una expresión perezosa **antes**
+de procesar el resto. Al agregar un bloque nuevo, su cierre le sirvió de cierre
+a una directiva de una línea que estaba 200 líneas más arriba, y todo lo del
+medio —la barra de letras entera— desapareció del HTML. **Sin error y sin
+aviso**: la página respondía 200 y la sección no estaba.
+
+Dos corolarios:
+
+- **No se nombra la directiva dentro de un comentario de Blade.** El nombre
+  escrito ahí abre un bloque de verdad, porque los comentarios se quitan
+  después.
+- La forma de una línea tampoco parsea bien los paréntesis anidados: un cast
+  `(float)` o una clausura adentro la dejan a medias. Cuando hay lógica, va al
+  controlador.
+
+Las vistas de este proyecto quedaron todas en la forma larga.
+
+---
+
+## 18. Medición y anuncios
+
+> 20-sep-2026. Salió de una pregunta del dueño: «no he recibido más datos en mi
+> Google Analytics». No era un script roto: **la migración no portó ninguna de
+> las etiquetas del CakePHP**, y el sitio nuevo salió a producción midiendo
+> cero sin que nada fallara.
+
+### Lo que el Cake tenía y el Laravel no
+
+Todo estaba en `src/Template/Layout/principal.ctp` y en las cinco plantillas de
+página. Nada de esto figuraba en el inventario de la migración: este documento
+no menciona «analytics» ni una vez en sus primeras 1.699 líneas.
+
+| qué | ID | en el Laravel, antes |
+|---|---|---|
+| GA4 (gtag) | `G-QJT8E0GNVR` | no existía |
+| Tag Manager | `GTM-KXJVD2T` | no existía |
+| AdSense | `ca-pub-0716124412178528` | plomería sí, IDs no |
+| `ads.txt` | — | no estaba en el repo |
+| Verificación Google | `google80f39555434cad84.html` | **404 en producción** |
+| Verificación Yandex | `yandex_55f1f31813073097.html` | **404 en producción** |
+
+> ⚠️ **`ads.txt` estaba vivo de casualidad.** Responde 200 porque sobrevivió en
+> `public_html` al reemplazo de archivos, no porque alguien lo hubiera
+> desplegado. Ahora está en `public/ads.txt`, versionado. Sin él AdSense marca
+> el inventario como no autorizado, y eso cuesta plata directa.
+
+> ⚠️ **Los archivos de verificación dan 404 desde el corte.** Si la propiedad de
+> Search Console estaba verificada por ese archivo —o por el código de
+> Analytics, que es el otro método común— se puede perder la verificación justo
+> cuando hace falta para medir si las 22.581 URLs se indexan. Restaurados en
+> `public/`, pero **hay que copiarlos a `public_html/`**: la raíz web es esa.
+
+### Se restauró gtag, no Tag Manager
+
+El Cake cargaba **las dos cosas** en el mismo `<head>`. Buscando en todo el
+proyecto viejo no hay un solo `dataLayer.push`: el contenedor nunca recibió un
+evento propio, así que o estaba vacío o tenía una etiqueta de GA4 hacia la misma
+propiedad y **cada visita se contó dos veces** durante años.
+
+Se conserva la propiedad `G-QJT8E0GNVR` y no una nueva: cortar el histórico de
+un sitio que viene de una caída algorítmica es perder el único punto de
+comparación que tiene.
+
+| pieza | dónde |
+|---|---|
+| La etiqueta | `resources/views/partials/medicion.blade.php` |
+| La variable | `ANALYTICS_ID`, `config/services.php` |
+| 5 casos | `tests/Feature/MedicionTest.php` |
+
+`MedicionTest` fija una cosa que no es obvia: **medir no puede costar la
+cacheabilidad**. La etiqueta es JavaScript del cliente, así que la respuesta
+sigue saliendo sin `Set-Cookie` y sin `Vary`; la cookie `_ga` la escribe el
+navegador y al servidor no le llega nunca. Una etiqueta del lado del servidor
+habría roto el §4 entero.
+
+### El reparto de anuncios, rehecho para móvil
+
+El Cake tenía tres unidades **en todas las páginas**: `1271487673` (banner
+arriba del mapa, `max-height:90px`), `5988504024` (responsive debajo del mapa) y
+`2513019791` (300×250 en la barra lateral del layout).
+
+El Laravel tenía tres, **todas en la ficha de ciudad**, y el reparto tenía dos
+agujeros medidos:
+
+1. **56 de 58 pantallas sin un anuncio.** La ficha de una ciudad grande mide
+   48.636 px a 390 px de ancho. Las tres unidades estaban en la primera
+   pantalla y en la última, y la última —la posición que más rinde— queda por
+   debajo de las 58: en móvil no la ve nadie.
+2. **La ficha de país, sin nada.** 246 URLs y 2.951 clics: **12 clics por URL**
+   contra los 5,2 de la ficha de ciudad. Es la página más eficiente del sitio y
+   el Cake sí la monetizaba.
+
+Lo que quedó:
+
+| unidad | dónde | formato |
+|---|---|---|
+| `ciudad_superior` | arriba del mapa | **horizontal**, alto reservado |
+| `ciudad_medio` | entre el buscador y el índice | auto |
+| **`ciudad_indice`** | **intercalada cada 8 grupos de letra** | auto, alto reservado |
+| `ciudad_final` | al final de la ficha | auto |
+| **`pais_superior`** | después del buscador de país | **horizontal**, alto reservado |
+| **`pais_medio`** | entre el formato de dirección y las listas | auto, alto reservado |
+
+Cuatro decisiones que no son obvias:
+
+1. **La intercalada va entre dos grupos de letra, nunca partiendo uno**, y
+   **nunca después del último** —ahí ya está `ciudad_final` y dos seguidas es
+   densidad de más—. Con 27 grupos y una cada 8 son tres unidades, una cada ~19
+   pantallas. Es deliberadamente poco denso: el sitio viene de una penalización
+   algorítmica y una página cargada de anuncios es justo la señal que conviene
+   no dar. `ADSENSE_INDICE_CADA` lo cambia sin tocar código.
+2. **Se reusa el mismo `data-ad-slot` varias veces en la página.** AdSense lo
+   admite y todas reportan juntas bajo la misma unidad.
+3. **Los dos bloques de arriba limitan el inventario a formatos
+   horizontales**, con full-width-responsive apagado. Ver abajo: es la segunda
+   vez que este problema aparece y la primera solución no servía.
+4. **Las intercaladas reservan el alto** (`min-height:280px`). Aparecen mientras
+   el visitante scrollea, que es el peor momento para un salto de layout.
+
+### ⚠️ El tamaño del anuncio lo manda el panel, no el marcado
+
+**Es la segunda vez que pasa: primero en calles-argentinas y después acá.**
+
+El patrón de tamaño fijo que documenta Google —`display:inline-block;
+width:320px;height:50px` y **sin** `data-ad-format`— se montó en los dos
+bloques de arriba justamente para que AdSense no pudiera servir un 336×280 y
+empujar el buscador fuera de la pantalla del teléfono. **Y AdSense sirvió un
+336×280 igual.**
+
+La razón es que **el tamaño lo decide la unidad del panel**. Si se creó como
+*Responsive* —lo que AdSense ofrece por defecto— `adsbygoogle.js` reescribe el
+alto del `<ins>` con el formato que eligió, y el `height:50px` del estilo no lo
+frena. El marcado fijo solo manda cuando la unidad del panel también es fija.
+
+El indicio estaba a la vista y nadie lo leyó: las unidades que venían del
+CakePHP se llaman **«worldstreets *adaptable* top»** y «adaptable bottom».
+
+**La salida, que no depende del panel**: `data-ad-format="horizontal"` con
+`data-full-width-responsive="false"`. Limita el inventario a 320×50, 320×100 y
+728×90, o sea **100 px de alto máximo en vez de 280**, y funciona esté la
+unidad configurada como esté — que es la propiedad que hacía falta, porque el
+código no puede verificar cómo quedó el panel. Se reservan **100 px y no 50**:
+entre un 320×50 y un 320×100 hay 50 px, y reservar el mayor evita el salto.
+
+`$fijo` sigue existiendo en el partial, para el día que las unidades del panel
+sean de tamaño fijo de verdad; ahí es más determinista que `horizontal`.
+
+> **La regla general**: cuando la configuración vive en un panel de un tercero,
+> el código no puede afirmar lo que esa configuración hace. Lo que se elija
+> tiene que dar el resultado correcto **con el panel configurado de cualquiera
+> de las formas posibles**.
+
+### ⚠️ La trampa que encontró el test
+
+**`@include` no aísla el scope de Blade**: el partial ve todas las variables de
+la vista que lo incluye.
+
+`lugares/pais.blade.php` define `$formato` —el array de líneas de
+`FormatoDeDireccion`— y `partials/ad-slot` usa `$formato` como su
+`data-ad-format`, que espera un string. Al montar la unidad del medio, **la
+ficha de país entera respondió 500**: `htmlspecialchars(): must be of type
+string, array given`, un mensaje que no nombra ni a los anuncios ni al
+`@include`.
+
+Ahora el partial **valida cada parámetro por tipo**, no con un `??` que solo
+mira si existe. Es la misma familia que la trampa de `@php` de §17: en Blade,
+lo que rompe no avisa.
+
+### Lo que queda
+
+- **Las unidades del panel son las del Cake**, pensadas para la maqueta vieja.
+  Sirven para arrancar y medir; para distinguir qué posición rinde hacen falta
+  unidades propias por posición.
+- **La home y la ficha de provincia siguen sin anuncios.** Son 154 y 94 clics
+  de 6.930: no mueven la aguja y la home es la única página con sesión.
+- **Verificar en AdSense que las unidades intercaladas no disparen un aviso de
+  densidad.** Es poco probable con una cada 19 pantallas, pero se mira.

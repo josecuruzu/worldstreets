@@ -6,6 +6,14 @@
      esa consulta, no cambiarle el nombre. --}}
 @section('title', 'Free Address Finder & Reverse Address Lookup')
 
+{{--
+    La home no tenía descripción. Nombra las dos familias de consulta que
+    traen el tráfico: `reverse address lookup {país}` (39 clics de EE.UU.) y
+    `{país} address lookup / address finder` (60 clics, la más grande de las
+    dos y la peor atendida hasta ahora).
+--}}
+@section('description', 'Free address finder and reverse address lookup worldwide. Search a city, then a street and house number, and see the address on the map. '.number_format($conCalles).' cities with street lists across '.$paises.' countries.')
+
 @section('content')
     <div x-data="addressFinderApp()">
 
@@ -71,7 +79,7 @@
                     </template>
                 </div>
 
-                <p x-show="ciudadQuery.length >= 2 && !mostrarSugerencias && !hayCiudad && !cargando" x-cloak
+                <p x-show="sinCiudades && !cargando" x-cloak
                    class="mt-2 text-cap text-ash">No cities matched that name.</p>
             </div>
 
@@ -103,100 +111,161 @@
             </div>
         </section>
 
-        {{-- Todo el bloque de búsqueda: la calle, el resultado y el mapa. --}}
+        {{--
+            Todo el bloque de búsqueda: la calle, el resultado y el mapa.
+
+            El orden importa y no es decorativo. Antes el mapa iba entre los
+            campos y la lista, 460px de alto: el visitante tipeaba la calle y la
+            altura, la búsqueda respondía bien —"macleod" devuelve las dos
+            Macleod Trail de Calgary— y en pantalla no se movía nada, porque el
+            resultado quedaba abajo del mapa, fuera del viewport. Se leía como
+            que el buscador no funcionaba.
+
+            Ahora la respuesta arranca a 0px del campo y el mapa se va a la
+            columna de al lado — y el mapa es un Leaflet propio, así que el
+            marcador de la dirección se mueve sin recargar nada.
+        --}}
         <section x-show="hayCiudad" x-cloak x-transition class="contenedor mt-10">
 
             <div class="flex flex-wrap items-baseline justify-between gap-4">
                 <h2 class="font-display text-head-sm">
-                    Streets in <span x-text="ciudad.nombre"></span>
+                    Streets in <span x-text="ciudad?.nombre"></span>
                 </h2>
-                {{-- Puerta de entrada a la ficha, que es la versión de esta ciudad
-                     que se puede enlazar, compartir e indexar. Si la ciudad no
-                     tiene calles no tiene ficha, y `ruta` llega en null. --}}
-                <a x-show="ciudad && ciudad.ruta" :href="ciudad.ruta" x-cloak class="text-cap">
-                    Full page for <span x-text="ciudad.nombre"></span> &rarr;
-                </a>
-            </div>
+                <div class="flex flex-wrap items-baseline gap-5">
+                    {{-- Volver al paso 1. Es una acción secundaria, así que va
+                         acá y no al lado de los campos: ahí competía por la
+                         atención con el botón que hace lo que el visitante
+                         vino a hacer. --}}
+                    <button type="button" x-on:click="limpiar()" class="text-cap text-violet underline-offset-4 hover:underline">
+                        Change city
+                    </button>
 
-            <div class="mt-5 overflow-hidden rounded-card border border-mist bg-paper">
-                <div class="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
-                    <label for="calle" class="sr-only">Street</label>
-                    <input id="calle" x-model="calleQuery" x-on:input="buscarCalle()"
-                           type="text" autocomplete="off" placeholder="Street name…"
-                           class="field grow bg-cream py-3.5">
-                    <label for="altura" class="sr-only">House number</label>
-                    <input id="altura" x-model="altura" type="text" inputmode="numeric" placeholder="No."
-                           class="field bg-cream py-3.5 sm:w-24">
-                    <button type="button" x-on:click="limpiar()" class="btn-ghost shrink-0">Change city</button>
-                </div>
-
-                {{-- El mapa es la página, no una miniatura de 256px. --}}
-                <div class="h-[320px] border-t border-mist sm:h-[460px]">
-                    <iframe :src="mapaUrl" class="h-full w-full" style="border:0" loading="lazy"
-                            referrerpolicy="no-referrer-when-downgrade" title="Map"></iframe>
+                    {{-- Puerta de entrada a la ficha, que es la versión de esta
+                         ciudad que se puede enlazar, compartir e indexar. Si la
+                         ciudad no tiene calles no tiene ficha, y `ruta` llega
+                         en null. --}}
+                    <a x-show="ciudad && ciudad.ruta" :href="ciudad?.ruta" x-cloak class="text-cap">
+                        Full page for <span x-text="ciudad?.nombre"></span> &rarr;
+                    </a>
                 </div>
             </div>
 
-            <p x-show="error" x-cloak x-text="error"
-               class="mt-4 rounded-card border border-mist bg-paper p-4 text-cap text-ink"></p>
+            <div class="mt-5 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,400px)]">
 
-            <div class="mt-6 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-                <div class="card">
-                    <template x-if="calleElegida">
-                        <div class="mb-5 border-b border-mist pb-5">
-                            <p class="font-display text-head-sm" x-text="direccionCompleta"></p>
-                            <a :href="osmUrl" target="_blank" rel="noopener noreferrer" class="mt-2 inline-block text-cap">
-                                Open in OpenStreetMap &rarr;
-                            </a>
+                <div class="flex flex-col gap-4">
+                    {{-- Los dos campos y la respuesta van en la misma tarjeta:
+                         son una sola cosa. --}}
+                    <div class="overflow-hidden rounded-card border border-mist bg-paper">
+                        {{--
+                            La altura va PRIMERO. En inglés la dirección se
+                            escribe "6455 Macleod Trail SE", y el sitio viejo ya
+                            cambiaba el orden de estos dos campos según el
+                            idioma: número primero para `eng` y `fra`, calle
+                            primero para `esp`, `por` e `ita`. Este sitio se
+                            publica solo en inglés.
+                        --}}
+                        <div class="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
+                            <label for="altura" class="sr-only">House number</label>
+                            <input id="altura" x-model="altura" x-on:keydown.enter.prevent="buscar()"
+                                   type="text" inputmode="numeric" placeholder="No."
+                                   autocomplete="off"
+                                   class="field bg-cream py-3.5 sm:w-24">
+                            <label for="calle" class="sr-only">Street</label>
+                            <input id="calle" x-model="calleQuery" x-on:input="buscarCalle()"
+                                   x-on:keydown.enter.prevent="buscar()"
+                                   type="text" autocomplete="off" placeholder="Street name…"
+                                   class="field grow bg-cream py-3.5">
+                            {{-- La acción principal del sitio. --}}
+                            <button type="button" x-on:click="buscar()" class="btn-dark shrink-0"
+                                    x-bind:disabled="buscandoDireccion"
+                                    x-text="buscandoDireccion ? 'Locating…' : 'Search'"></button>
                         </div>
-                    </template>
 
-                    <template x-if="cargando">
-                        <p class="text-body text-ash">Searching…</p>
-                    </template>
+                        {{-- La dirección encontrada, pegada a los campos: es la
+                             respuesta a lo que se acaba de tipear. --}}
+                        <template x-if="resultado">
+                            <div class="border-t border-mist bg-cream px-4 py-5">
+                                <p class="font-display text-head-sm" x-text="direccionCompleta"></p>
+                                <p class="mt-1.5 text-cap text-ash" x-text="resultado.etiqueta"></p>
+                                <a :href="osmUrl" target="_blank" rel="noopener noreferrer" class="mt-2 inline-block text-cap">
+                                    View on OpenStreetMap &rarr;
+                                </a>
+                            </div>
+                        </template>
 
-                    <template x-if="!cargando && calles.length">
-                        <div>
-                            {{-- Sin contadores: 1.017.913 de las 1.059.464 filas
-                                 tienen el contador en 0, así que un "1 search" al
-                                 lado de casi cada calle describe el ruido. --}}
-                            <h3 class="eyebrow" x-text="calleQueryAplicada ? 'Matching streets' : 'Streets on record'"></h3>
-                            <ul class="mt-3 divide-y divide-mist">
-                                <template x-for="c in calles" :key="c.nombre">
-                                    <li>
-                                        <button type="button" x-on:click="elegirCalle(c.nombre)"
-                                                class="-mx-3 flex w-[calc(100%+1.5rem)] items-center rounded-card px-3 py-2.5 text-left transition hover:bg-cream">
-                                            <span x-text="c.nombre"></span>
-                                        </button>
-                                    </li>
-                                </template>
-                            </ul>
-                        </div>
-                    </template>
+                        {{-- Y la que no existe. El sitio viejo acá tiraba un
+                             alert() del navegador. --}}
+                        <template x-if="sinResultado">
+                            <p class="border-t border-mist bg-cream px-4 py-4 text-body text-ash">
+                                We could not place that house number. Check the street name and the
+                                number, or try the street without a number to see what we have.
+                            </p>
+                        </template>
+                    </div>
 
-                    <template x-if="!cargando && !calles.length && calleQueryAplicada">
-                        <p class="text-body text-ash">
-                            No street matched &ldquo;<span x-text="calleQueryAplicada"></span>&rdquo; in
-                            <span x-text="ciudad.nombre"></span>.
-                        </p>
-                    </template>
+                    <p x-show="error" x-cloak x-text="error"
+                       class="rounded-card border border-mist bg-paper p-4 text-cap text-ink"></p>
 
-                    {{-- El estado vacío es el caso normal, no la excepción: solo
-                         18.361 de 4.697.141 ciudades tienen alguna calle. --}}
-                    <template x-if="!cargando && !calles.length && !calleQueryAplicada">
-                        <p class="text-body text-ash">
-                            No streets have been looked up in <span x-text="ciudad.nombre"></span> yet.
-                            This list is built from what visitors search &mdash; type a street above and you start it.
-                        </p>
-                    </template>
+                    <div class="card">
+                        <template x-if="cargando">
+                            <p class="text-body text-ash">Searching…</p>
+                        </template>
+
+                        <template x-if="!cargando && calles.length">
+                            <div>
+                                {{-- Sin contadores: 1.017.913 de las 1.059.464 filas
+                                     tienen el contador en 0, así que un "1 search" al
+                                     lado de casi cada calle describe el ruido. --}}
+                                <h3 class="eyebrow" x-text="calleQueryAplicada ? 'Matching streets' : 'Streets on record'"></h3>
+                                <ul class="mt-3 divide-y divide-mist">
+                                    <template x-for="c in calles" :key="c.nombre">
+                                        <li>
+                                            <button type="button" x-on:click="elegirCalle(c.nombre)"
+                                                    class="-mx-3 flex w-[calc(100%+1.5rem)] items-center rounded-card px-3 py-2.5 text-left transition hover:bg-cream">
+                                                <span x-text="c.nombre"></span>
+                                            </button>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </div>
+                        </template>
+
+                        <template x-if="!cargando && !calles.length && calleQueryAplicada">
+                            <p class="text-body text-ash">
+                                No street matched &ldquo;<span x-text="calleQueryAplicada"></span>&rdquo; in
+                                <span x-text="ciudad?.nombre"></span>.
+                            </p>
+                        </template>
+
+                        {{-- El estado vacío es el caso normal, no la excepción: solo
+                             18.361 de 4.697.141 ciudades tienen alguna calle. --}}
+                        <template x-if="!cargando && !calles.length && !calleQueryAplicada">
+                            <p class="text-body text-ash">
+                                No streets have been looked up in <span x-text="ciudad?.nombre"></span> yet.
+                                This list is built from what visitors search &mdash; type a street above and you start it.
+                            </p>
+                        </template>
+                    </div>
                 </div>
 
-                <aside class="card">
-                    <h3 class="eyebrow">About this search</h3>
-                    <p class="mt-3 text-cap text-ash">
-                        Nothing here is tied to you. We keep an anonymous count of how often each
-                        street is looked up, and that count is what writes the list.
-                    </p>
+                {{-- El mapa. Es nuestro: un Leaflet sobre los tiles de OSM, no
+                     la página de OpenStreetMap embebida. Sticky para que el
+                     marcador no se vaya mientras se recorre la lista. --}}
+                <aside class="flex flex-col gap-4 lg:sticky lg:top-4">
+                    {{-- x-effect y no una llamada suelta: Alpine lo vuelve a
+                         correr cuando cambia la ciudad o cuando aparece una
+                         dirección, así que el encuadre y el marcador no
+                         dependen de que alguien se acuerde de invocarlos. --}}
+                    <div x-effect="pintarMapa($el, ciudad, resultado)"
+                         class="z-0 h-[320px] overflow-hidden rounded-card border border-mist bg-paper sm:h-[420px]"></div>
+
+                    <div class="card">
+                        <h3 class="eyebrow">About this search</h3>
+                        <p class="mt-3 text-cap text-ash">
+                            Nothing here is tied to you. We keep an anonymous count of how often each
+                            street is looked up, and that count is what writes the list.
+                        </p>
+                    </div>
                 </aside>
             </div>
         </section>

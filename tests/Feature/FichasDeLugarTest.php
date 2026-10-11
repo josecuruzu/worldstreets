@@ -59,6 +59,87 @@ class FichasDeLugarTest extends TestCase
             ->assertSee('/south-africa/western-cape', false);
     }
 
+    /**
+     * El orden de "Best covered cities" es por CALLES, no por población.
+     *
+     * Es el cambio de contenido con más valor de intención de la ficha de
+     * país: el visitante que llega de `reverse address lookup canada` viene a
+     * encontrar una dirección, y para eso una ciudad con 8.014 calles le sirve
+     * y una más poblada con 3 no. En Canadá, Toronto tiene más gente que
+     * Calgary; Calgary tiene la lista.
+     */
+    public function test_las_ciudades_del_pais_se_ordenan_por_calles_y_no_por_poblacion(): void
+    {
+        // Stellenbosch tiene 77.476 habitantes contra los 3.433.441 de Cape
+        // Town, y acá tres calles contra una.
+        $this->crearCalle(3361414, 'andringa street', 0);
+        $this->crearCalle(3361414, 'bird street', 0);
+
+        $html = $this->get('/south-africa')->assertOk()->getContent();
+
+        $this->assertStringContainsString('Best covered cities', $html);
+        $this->assertLessThan(
+            strpos($html, 'Cape Town', strpos($html, 'Best covered cities')),
+            strpos($html, 'Stellenbosch', strpos($html, 'Best covered cities')),
+            'Stellenbosch tiene más calles, así que va primero.'
+        );
+    }
+
+    /** Y cada región declara sus calles, no su cantidad de ciudades. */
+    public function test_la_ficha_de_pais_declara_las_calles_de_cada_region(): void
+    {
+        $this->get('/south-africa')
+            ->assertOk()
+            ->assertSee('Streets on record in each region', false);
+    }
+
+    /**
+     * La ficha de país tiene buscador.
+     *
+     * Es la página más eficiente del sitio —246 URLs se llevaron 2.951 clics—
+     * y era la más pasiva: el visitante tenía que elegir región, después
+     * ciudad, y recién ahí podía buscar una dirección.
+     */
+    public function test_la_ficha_de_pais_tiene_buscador_acotado_al_pais(): void
+    {
+        $respuesta = $this->get('/south-africa')->assertOk();
+
+        $respuesta->assertSee('buscadorDePais(', false);
+        $respuesta->assertSee('south-africa', false);
+        // Y el h1 lleva la frase que rankea, no el nombre del país a secas.
+        $respuesta->assertSee('Reverse address lookup in South Africa', false);
+    }
+
+    /**
+     * El bloque de formato de dirección.
+     *
+     * Es lo que atiende las 41 consultas estadounidenses de código postal que
+     * hoy dan 528 impresiones y cero clics, y lo único de valor que la ficha
+     * de país puede dar cuando el país tiene pocas calles.
+     */
+    public function test_la_ficha_de_pais_explica_como_se_escribe_una_direccion(): void
+    {
+        $respuesta = $this->get('/south-africa')->assertOk();
+
+        $respuesta->assertSee('How an address works in South Africa', false);
+        $respuesta->assertSee('Postal code', false);
+        $respuesta->assertSee('8001', false);
+        $respuesta->assertSee('Suburb', false);
+    }
+
+    /** Donde el dato no es firme no se inventa: el bloque no aparece. */
+    public function test_un_pais_sin_ficha_de_formato_no_muestra_el_bloque(): void
+    {
+        DB::table('paises')->insert([
+            'id' => 'KS', 'nombre' => 'Kosovo', 'url' => 'kosovo', 'continente_id' => 'AF',
+            'centro_x' => 42.6, 'centro_y' => 20.9, 'zoom' => 8,
+        ]);
+
+        $this->get('/kosovo')
+            ->assertOk()
+            ->assertDontSee('How an address works in', false);
+    }
+
     public function test_la_ficha_de_provincia_lista_las_ciudades_de_mayor_a_menor(): void
     {
         $respuesta = $this->get('/south-africa/western-cape')->assertOk();
@@ -150,6 +231,34 @@ class FichasDeLugarTest extends TestCase
      * 26 por ciudad × 18.361 ciudades, que es el problema que el sitio está
      * tratando de sacarse de encima.
      */
+    /**
+     * El buscador de la ficha busca en la ficha.
+     *
+     * Estuvo un rato siendo un `<form method="get">` que apuntaba a la home con
+     * `street`, `number` y `city` en la query string — tres parámetros que
+     * `home()` no lee. Buscar una calle desde la página que recibe el tráfico
+     * de Google devolvía la home vacía.
+     */
+    public function test_el_buscador_de_la_ficha_no_manda_a_la_home(): void
+    {
+        $this->crearCalle(3369157, 'adderley street', 0);
+
+        $respuesta = $this->get('/south-africa/western-cape/cape-town-3369157')->assertOk();
+
+        $respuesta->assertDontSee('<form', false);
+        $respuesta->assertDontSee('name="street"', false);
+        // El componente de Alpine, con la ciudad ya resuelta: el paso 1 del
+        // buscador no hace falta acá.
+        // `addressFinderApp(` y no `addressFinderApp()`: desde que existe el
+        // botón de compartir, el componente recibe la dirección que puede venir
+        // de un enlace `/r/{codigo}`, y en una ficha normal eso es `null`.
+        $respuesta->assertSee('addressFinderApp(', false);
+        $respuesta->assertSee('buscar()', false);
+        // Y el mapa es nuestro, no la página de OSM embebida: el marcador de
+        // la dirección se mueve sin recargar nada.
+        $respuesta->assertSee('pintarMapa($el, ciudad, resultado)', false);
+    }
+
     public function test_la_barra_de_letras_no_crea_urls(): void
     {
         $this->crearCalle(3369157, 'adderley street', 0);

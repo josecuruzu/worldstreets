@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Support\Idioma;
+use App\Support\TipoDeVia;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -45,6 +47,26 @@ class Busqueda extends Model
      */
     public const CALLES_POR_LETRA = 120;
 
+    /*
+     * ── Por qué el índice agrupa por tipo de vía en español ───────────────
+     *
+     * Agrupar por la letra inicial funciona en inglés, donde el tipo de vía va
+     * al final —`Macleod Trail SE`— y la primera letra es la del nombre real.
+     * En español va adelante, y eso apila todo bajo la misma letra. Medido:
+     *
+     *     Colombia   81% de las calles bajo la «C»   (Calle, Carrera)
+     *     España     42%                             (Calle)
+     *     Cuba       29%    México 26%    Venezuela 29%
+     *
+     * Con el tope de 120 por grupo, la ficha colombiana publicaba el 4% de sus
+     * calles. Y Soacha es la consulta en español con más clics del sitio.
+     *
+     * Agrupando por tipo, una ficha colombiana abre con «Calle» y «Carrera»,
+     * que es por donde el visitante entra, y adentro de cada grupo las calles
+     * van ordenadas como números: 1, 2, 3, 10, 10A, 11 — no 1, 10, 10A, 11, 2,
+     * que es lo que da el orden alfabético sobre una cuadrícula numerada.
+     */
+
     /**
      * Tope de seguridad al leer. La ciudad con más calles tiene 36.590, así que
      * esto no recorta a nadie hoy; está para que un import futuro no traiga
@@ -72,9 +94,11 @@ class Busqueda extends Model
      *
      * @return Collection<string, array{calles: Collection<int, string>, total: int}>
      */
-    public static function indiceDeCiudad(int $ciudadId): Collection
+    public static function indiceDeCiudad(int $ciudadId, ?string $paisId = null): Collection
     {
-        return static::query()
+        $porTipo = Idioma::cubre($paisId);
+
+        $calles = static::query()
             ->where('ciudad_id', $ciudadId)
             ->orderBy('nombre_calle')
             ->limit(self::TOPE_DE_LECTURA)
@@ -82,12 +106,51 @@ class Busqueda extends Model
             ->map(fn (string $nombre) => trim($nombre))
             ->filter(fn (string $nombre) => self::inicial($nombre) !== null)
             ->map(fn (string $nombre) => self::mostrar($nombre))
-            ->unique()
-            ->groupBy(fn (string $nombre) => self::inicial($nombre))
-            ->map(fn (Collection $calles) => [
-                'calles' => $calles->take(self::CALLES_POR_LETRA)->values(),
-                'total' => $calles->count(),
+            ->unique();
+
+        $grupos = $calles
+            ->groupBy(fn (string $nombre) => $porTipo
+                ? (TipoDeVia::de($nombre) ?? self::inicial($nombre))
+                : self::inicial($nombre))
+            ->map(fn (Collection $delGrupo, string $clave) => [
+                'tipo' => $porTipo && in_array($clave, TipoDeVia::CANONICOS, true),
+                'calles' => $delGrupo
+                    ->map(fn (string $nombre) => $porTipo && TipoDeVia::de($nombre) !== null
+                        ? TipoDeVia::resto($nombre)
+                        : $nombre)
+                    ->sort(fn (string $a, string $b) => strnatcasecmp($a, $b))
+                    ->take(self::CALLES_POR_LETRA)
+                    ->values(),
+                'total' => $delGrupo->count(),
             ]);
+
+        return $grupos->sortBy(fn (array $grupo, string $clave) => self::ordenDelGrupo($clave, $grupo['tipo']));
+    }
+
+    /**
+     * En qué orden va cada grupo del índice.
+     *
+     * Los tipos de vía primero y en el orden en que los declara `TipoDeVia`
+     * —que es por cuánto pesan, no alfabético: «Calle» y «Carrera» son el 70%
+     * del corpus colombiano—, después `#` y después las letras. Así lo
+     * primero que ve el visitante de una ficha colombiana es la puerta por la
+     * que entra: «Calle», «Carrera».
+     */
+    private static function ordenDelGrupo(string $clave, bool $esTipo): string
+    {
+        /*
+         * Los prefijos son letras y no dígitos a propósito: PHP compara dos
+         * cadenas numéricas como números, así que con '1000' y '2' el grupo
+         * '#' se colaba antes que los tipos de vía. Con 'a', 'b' y 'c' la
+         * comparación es de texto y el orden es el que dice esta función.
+         */
+        if ($esTipo) {
+            $posicion = array_search($clave, TipoDeVia::CANONICOS, true);
+
+            return 'a'.str_pad((string) $posicion, 3, '0', STR_PAD_LEFT);
+        }
+
+        return $clave === '#' ? 'b' : 'c'.$clave;
     }
 
     /**
@@ -179,9 +242,23 @@ class Busqueda extends Model
 
         $limpio = preg_replace('/\s+/u', ' ', $limpio);
 
-        // A forma compuesta, para que un "José" tecleado con acento combinante
-        // quede byte a byte igual al "José" precompuesto que trajo el import.
-        $limpio = \Normalizer::normalize($limpio, \Normalizer::FORM_C) ?: $limpio;
+        /*
+         * A forma compuesta, para que un "José" tecleado con acento combinante
+         * quede byte a byte igual al "José" precompuesto que trajo el import.
+         *
+         * `Normalizer` viene de la extensión `intl`, y esta función corre en
+         * las DOS rutas públicas que guardan una calle. En un hosting
+         * compartido donde `intl` no esté activada, llamarla a secas es un
+         * error fatal en la función principal del sitio, y el síntoma sería
+         * que el buscador de direcciones deja de responder sin más pista.
+         *
+         * Con la guarda, la ausencia de `intl` cuesta lo que tiene que
+         * costar: los acentos descompuestos no se unifican. Es un defecto de
+         * calidad en un puñado de nombres, no una caída.
+         */
+        if (class_exists(\Normalizer::class)) {
+            $limpio = \Normalizer::normalize($limpio, \Normalizer::FORM_C) ?: $limpio;
+        }
 
         return trim($limpio);
     }

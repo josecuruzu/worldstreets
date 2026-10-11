@@ -38,6 +38,16 @@ class RespuestaCacheable
         $respuesta = $siguiente($peticion);
 
         /*
+         * Solo lecturas. En el grupo público hay un POST —el que geocodifica
+         * una dirección y guarda la calle—, y declararlo `public, s-maxage`
+         * haría que el borde le sirviera a un visitante la dirección que buscó
+         * otro.
+         */
+        if (! $peticion->isMethodCacheable()) {
+            return $respuesta;
+        }
+
+        /*
          * Solo lo que salió bien o es una redirección permanente. Un error
          * cacheado una hora es un error que no se puede arreglar en una hora, y
          * los 410 conviene que Google los vuelva a pedir: son el mecanismo con

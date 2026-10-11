@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\Idioma;
 use Illuminate\Database\Connection;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -445,7 +446,7 @@ class Ciudad extends Model
             return null;
         }
 
-        return route('ciudad', [$this->pais->url, $this->provincia_slug, $this->segmento]);
+        return Idioma::url('ciudad', [$this->pais->url, $this->provincia_slug, $this->segmento]);
     }
 
     /**
