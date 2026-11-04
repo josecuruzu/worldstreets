@@ -4,10 +4,12 @@ use App\Http\Middleware\BloqueaScrapers;
 use App\Http\Middleware\HostCanonico;
 use App\Http\Middleware\IdiomaPorDefecto;
 use App\Http\Middleware\RespuestaCacheable;
+use App\Support\CloudflareIps;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Support\Facades\Route;
 
@@ -36,6 +38,18 @@ return Application::configure(basePath: dirname(__DIR__))
          * dejaron $0,73 en un año.
          */
         $middleware->prepend(BloqueaScrapers::class);
+
+        /*
+         * Cloudflare delante del sitio: la IP del visitante llega en
+         * X-Forwarded-For, pero solo se le cree si la petición viene de un
+         * rango de Cloudflare. Ver `CloudflareIps`.
+         */
+        $middleware->trustProxies(
+            at: CloudflareIps::RANGOS,
+            headers: Request::HEADER_X_FORWARDED_FOR
+                | Request::HEADER_X_FORWARDED_PORT
+                | Request::HEADER_X_FORWARDED_PROTO,
+        );
 
         /*
          * El noindex del dominio de pruebas. Global y no en el grupo
