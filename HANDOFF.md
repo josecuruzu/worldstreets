@@ -2104,3 +2104,45 @@ al hosting**.
    ~2.800 URLs menos de las 22.879 que publicamos.
 5. **Remedir hacia el 20-nov**, con el bloqueo ya puesto, filtrando
    Singapur y China en GA4 y AdSense.
+
+### Diagnóstico de indexación (4-nov, tarde)
+
+Revisando cómo llega Google a una ficha desde la navegación, no solo por el
+sitemap:
+
+- **Las fichas profundas solo se alcanzan pasando páginas de a una.**
+  `LugaresController::provincia()` lista las ciudades con calles de 60 en 60
+  con `simplePaginate` (solo "siguiente"). Fuera de `/es/`, medido en los
+  sitemaps: Nova Scotia 1.837 fichas (~31 páginas), New Brunswick 968 (~17),
+  Ontario 260 (5; Odessa está en la página 4); 46 provincias superan las 60
+  fichas y 9 superan 300.
+- **Las páginas fuera de rango dan 200 vacío**: `/canada/ontario?page=6`, `7`,
+  `8`… responden 200 con canónica propia y cero ciudades. Espacio infinito de
+  páginas parecidas a soft 404. Google ya conoce URLs `?page=N`.
+- **El sitemap no lleva `lastmod`.** No agregarlo sin una fecha verdadera por
+  ficha; hoy no hay columna fiable.
+- Comparación de 4 fichas de Canadá: la más rica (Odessa, 268 calles, 873
+  palabras) no está en Google y Stillwater Lake (49 calles) sí. El tamaño del
+  contenido no explica quién entra. Todas dan 200, canónica propia, sin
+  `noindex`, 13 enlaces internos y sin JSON-LD.
+- Consultas descartadas: "maps directory" (es la URL vieja `/esp/country/maps/
+  address/mexico`, que da 301 a `/es/mexico`), "street address" y "address
+  lookup" sin "reverse". La demanda alineada es "reverse address lookup" +
+  país (India, Canadá, Filipinas).
+
+### Pendiente para mañana (5-nov), además de los de arriba
+
+6. **Parte A, estructura (decisión tomada: empezar por acá):**
+   1. Página de provincia con más fichas por página (~300) y enlaces numerados
+      a todas las páginas, para que cualquier ficha quede a 2-3 clics.
+   2. Página fuera de rango → 404.
+   3. En la ficha de ciudad, enlazar a ciudades **cercanas** de la misma
+      provincia y no a las más grandes.
+   Hacerlo en local con tests y **no subir hasta aprobar**. Ojo: las URLs
+   `?page=N` ya están en Google, la paginación nueva cambia cómo se ven.
+7. **Parte B, calidad de la ficha (después de A):** quitar anuncios en fichas
+   con pocas calles (dejar 1 unidad bajo unas 10), variar título y descripción
+   con datos reales (población, nº de calles) y agregar JSON-LD de lugar.
+8. **Parte C:** esperar el detalle de cobertura de las 14 fichas (punto 3). Si
+   dice "Descubierta" pesa la parte A; si dice "Rastreada: sin indexar", la B.
+
