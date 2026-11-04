@@ -2040,3 +2040,67 @@ tiene calles, 410 si no. Contra la base local, de los 7 de la muestra, 3 pasan
 a 301 a fichas con contenido (Ecatepec, Larsai, Mata-Utu) y 4 a 410.
 Test: `test_la_url_del_json_ld_viejo_va_a_la_ficha_de_ciudad`. Suite: **289
 tests, 803 assertions**.
+
+
+## 20. Segunda lectura y pendientes para mañana
+
+> 4-nov-2026. Exports en `analytics/2026-11-3/` (Search Console, AdSense y GA4,
+> hasta el 1 a 3-nov) y muestra de 20 fichas con Inspección de URLs.
+
+**En una línea: el sitio nuevo sigue sin recuperarse, y la medición está
+tapada por bots.**
+
+| | 11-oct | ahora |
+|---|---|---|
+| Indexadas, todas las URLs conocidas | 24.358 | **20.610** (último dato: 22-oct) |
+| Sitemap nuevo, "descubiertas" | 20.053 | 20.053 (sin cambio); `lugares.xml` 2.524 |
+| Rastreo, peticiones/día | ~1.800 | **~300-400** a fin de octubre (respuesta ~100 ms, sin 5xx) |
+| Clics por semana | 3-5 | 5-9 (impresiones 450-770) |
+| URLs nuevas con impresiones | 11 | 73 (de 1.000) |
+| Ingresos AdSense, 11-oct a 3-nov | — | $2,83 |
+
+- **Inspección de 20 fichas del sitemap: 6 en Google (30%).** Países y
+  provincias 2/5, Canadá **1/6**, Japón 1/3, Sudáfrica 1/2, Austria 1/2, India
+  0/2. Las seis indexadas tienen fecha de rastreo entre el 20 y el 29-sep: desde
+  entonces Google no sumó ninguna. Las 20 responden 200 y sin `noindex`.
+- **Bots: el 95% de las sesiones de GA4.** Singapur 16.038 de 16.907 sesiones,
+  con 0,0 s de interacción. Sesiones reales: 768 en cuatro semanas (~27/día).
+- Impresiones por página vista en EE.UU.: 1,5 a 1,8, contra 4,68 del Cake. El
+  RPM por impresión mejoró (ciudad superior de $0,57 a $2,03). Con este
+  volumen no se optimizan anuncios.
+- El export del sitemap nuevo no aparece en Indexación → Páginas, y la pantalla
+  Sitemaps no ofrece "Ver indexación de páginas". De ahí la inspección manual.
+
+**Decisión: el paso 6 sigue sin tocarse.** Google indexa menos de 3 de cada 10
+fichas existentes; sumar páginas de calle repetiría el error de las 18 M.
+
+### Hecho el 4-nov
+
+`9244d98`: `trustProxies` con los rangos de Cloudflare (`CloudflareIps`,
+`bootstrap/app.php`, `CloudflareProxyTest`). Sin esto, detrás del proxy
+`$request->ip()` devolvería la IP de Cloudflare y se romperían el candado de
+direcciones del buscador (`BuscadorController`), el límite del login y el de
+Nominatim. Suite: **291 tests, 806 assertions**. Pusheado, **todavía no subido
+al hosting**.
+
+### Pendientes para mañana (5-nov)
+
+1. **Subir al hosting** `app/Support/CloudflareIps.php` y `bootstrap/app.php`,
+   antes de tocar los nameservers.
+2. **Bloquear Singapur y China con Cloudflare:**
+   1. cuenta gratuita y alta de `worldstreets.global`;
+   2. comprobar que importó todos los DNS, sobre todo `MX` y `TXT`;
+   3. cambiar los nameservers en el registrador;
+   4. SSL/TLS en **Full (strict)** (el `.htaccess` ya lee `X-Forwarded-Proto`);
+   5. WAF → regla personalizada: país = SG o CN **y** no es bot verificado →
+      Bloquear (protege a Googlebot);
+   6. registros A/CNAME con la nube naranja.
+   Verificar después: la home responde 200, `ads.txt` y `robots.txt` siguen
+   accesibles, y el buscador registra una búsqueda de prueba.
+3. **Detalle de cobertura de las 14 fichas no indexadas**: si dicen
+   "Descubierta" (problema de rastreo) o "Rastreada: sin indexar" (calidad),
+   más la fecha de último rastreo. Sobre todo las de Canadá (6, 8, 9, 10, 11).
+4. **Reenviar `sitemap.xml`** en Search Console (opcional): Google conoce
+   ~2.800 URLs menos de las 22.879 que publicamos.
+5. **Remedir hacia el 20-nov**, con el bloqueo ya puesto, filtrando
+   Singapur y China en GA4 y AdSense.
