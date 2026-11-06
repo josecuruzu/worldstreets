@@ -241,8 +241,8 @@
                              18.361 de 4.697.141 ciudades tienen alguna calle. --}}
                         <template x-if="!cargando && !calles.length && !calleQueryAplicada">
                             <p class="text-body text-ash">
-                                No streets have been looked up in <span x-text="ciudad?.nombre"></span> yet.
-                                This list is built from what visitors search &mdash; type a street above and you start it.
+                                No streets are on record for <span x-text="ciudad?.nombre"></span> yet.
+                                Look up an address above and the street is added to the list.
                             </p>
                         </template>
                     </div>
@@ -263,7 +263,7 @@
                         <h3 class="eyebrow">About this search</h3>
                         <p class="mt-3 text-cap text-ash">
                             Nothing here is tied to you. We keep an anonymous count of how often each
-                            street is looked up, and that count is what writes the list.
+                            street is looked up.
                         </p>
                     </div>
                 </aside>
@@ -317,8 +317,8 @@
                     Country, region, city — all the way down.
                 </h2>
                 <p class="mt-5 text-sub [text-wrap:pretty]">
-                    Every place has its own page, with the map, the local names and the streets people
-                    have looked up there. {{ number_format($conCalles) }} cities already carry a street
+                    Every place has its own page, with the map, the local names and its list of
+                    streets. {{ number_format($conCalles) }} cities already carry a street
                     list; the rest are waiting for their first search.
                 </p>
                 @if ($cobertura->isNotEmpty())

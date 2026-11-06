@@ -47,6 +47,12 @@ Route::get('/sitemaps/{pais}.xml', [SitemapController::class, 'pais'])
     ->where('pais', '[a-z0-9-]+')
     ->name('sitemap.pais');
 
+/*
+| Acerca del sitio. Va antes de las fichas por lo de siempre: `/{pais}`
+| captura cualquier segmento suelto, incluido `about`.
+*/
+Route::view('/about', 'about')->name('about');
+
 // El sitio viejo publicaba `sitemaps.xml`; Google ya lo conoce.
 Route::get('/sitemaps.xml', fn () => redirect()->route('sitemap', [], 301));
 Route::get('/sitemap', fn () => redirect()->route('sitemap', [], 301));

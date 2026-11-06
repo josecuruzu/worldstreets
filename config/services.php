@@ -72,6 +72,14 @@ return [
         'id' => env('ANALYTICS_ID'),
     ],
 
+    /*
+    | Correo de contacto que se muestra en /about. Sin CONTACT_EMAIL la página
+    | no muestra ninguno: mejor ninguno que uno inventado.
+    */
+    'contacto' => [
+        'email' => env('CONTACT_EMAIL'),
+    ],
+
     'adsense' => [
         'client' => env('ADSENSE_CLIENT'),
 

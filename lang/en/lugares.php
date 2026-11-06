@@ -65,7 +65,7 @@ return [
 
     'provincia' => [
         'titulo' => 'Reverse Address Lookup Free in :provincia, :pais',
-        'descripcion_con_ciudades' => 'Do unlimited reverse address searches in cities of :provincia, :pais. Every city with a street list has its own page, with the map and the streets people have looked up there.',
+        'descripcion_con_ciudades' => 'Do unlimited reverse address searches in cities of :provincia, :pais. Every city with a street list has its own page, with the map and its list of streets.',
         'descripcion_sin_ciudades' => 'Do unlimited reverse address searches in cities of :provincia, :pais. Find the physical address of a place on the map.',
         'sub' => 'cities with a street list, largest first',
         'sub_sin_region' => 'Cities in :pais that GeoNames does not assign to any region',
@@ -84,9 +84,9 @@ return [
         'no_encontrada' => 'We could not place that house number in :ciudad. Check the street name and the number, or search the street without a number.',
         'coincidentes' => 'Matching streets',
         'sin_coincidencias_1' => 'No street matched “',
-        'sin_coincidencias_2' => '” in :ciudad. The list below is everything visitors have looked up here.',
+        'sin_coincidencias_2' => '” in :ciudad. The list below is every street on record here.',
         'indice_titulo' => 'Streets in :ciudad',
-        'indice_sub' => 'Every street visitors have looked up here, A to Z.',
+        'indice_sub' => 'Every street on record for this city, A to Z.',
         'saltar_tipo' => 'Jump to a street type',
         'saltar_letra' => 'Jump to a letter',
         'de_total' => ':mostradas of :total',

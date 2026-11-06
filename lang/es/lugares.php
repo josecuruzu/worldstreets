@@ -86,7 +86,7 @@ return [
 
     'provincia' => [
         'titulo' => 'Calles y direcciones de :provincia, :pais',
-        'descripcion_con_ciudades' => 'Busca direcciones por calle y número en las ciudades de :provincia, :pais. Cada ciudad con lista de calles tiene su página, con el mapa y las calles que la gente buscó ahí.',
+        'descripcion_con_ciudades' => 'Busca direcciones por calle y número en las ciudades de :provincia, :pais. Cada ciudad con lista de calles tiene su página, con el mapa y su lista de calles.',
         'descripcion_sin_ciudades' => 'Busca direcciones por calle y número en las ciudades de :provincia, :pais. Encuentra el lugar en el mapa.',
         'sub' => 'ciudades con lista de calles, de mayor a menor',
         'sub_sin_region' => 'Ciudades de :pais que GeoNames no asigna a ninguna región',
@@ -105,9 +105,9 @@ return [
         'no_encontrada' => 'No pudimos ubicar ese número en :ciudad. Revisa el nombre de la calle y el número, o busca la calle sin número.',
         'coincidentes' => 'Calles que coinciden',
         'sin_coincidencias_1' => 'Ninguna calle coincide con “',
-        'sin_coincidencias_2' => '” en :ciudad. La lista de abajo es todo lo que la gente buscó acá.',
+        'sin_coincidencias_2' => '” en :ciudad. La lista de abajo es todo lo que tenemos registrado acá.',
         'indice_titulo' => 'Calles de :ciudad',
-        'indice_sub' => 'Todas las calles que la gente buscó acá, de la A a la Z.',
+        'indice_sub' => 'Todas las calles registradas en esta ciudad, de la A a la Z.',
         'saltar_tipo' => 'Ir a un tipo de vía',
         'saltar_letra' => 'Ir a una letra',
         'de_total' => ':mostradas de :total',

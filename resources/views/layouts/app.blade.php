@@ -150,10 +150,11 @@
 
     <footer class="contenedor pb-10">
         <p class="border-t border-mist pt-6 text-cap text-ash">
-            Street data comes from what visitors look up here. Place data from
+            Street names are those on record in our database. Place data from
             <a href="https://www.geonames.org/" rel="noopener">GeoNames</a>; map tiles
             &copy; <a href="https://www.openstreetmap.org/copyright" rel="noopener">OpenStreetMap</a>
             contributors.
+            <a href="{{ route('about') }}">About</a>
         </p>
     </footer>
 
