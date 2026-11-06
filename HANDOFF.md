@@ -16,7 +16,7 @@
 > **20-sep**. La primera lectura de resultados está en §19.
 >
 > **Actualizado el 2026-11-06.** Cloudflare activo delante del sitio, IndexNow
-> enviado, Parte A del plan hecha en local (sin subir). Ver §21.
+> enviado, Parte A del plan y `/about` **subidos a producción el 6-nov**. Ver §21.
 
 ---
 
@@ -2163,7 +2163,7 @@ sitemap:
 | 3. Detalle de cobertura de las 14 fichas | **pendiente** (Search Console, a mano) |
 | 4. Reenviar `sitemap.xml` | **hecho** por el usuario |
 | 5. Remedir hacia el 20-nov | pendiente |
-| 6. Parte A, estructura | **hecho en local**, commit `cf52e01`, **sin subir** |
+| 6. Parte A, estructura | **hecho y subido el 6-nov**, commit `cf52e01` |
 | 7. Parte B, calidad de la ficha | pendiente |
 
 ### Cloudflare
@@ -2213,7 +2213,25 @@ URLs. Las fichas (`/canada`, `/canada/ontario`, `/es`) salen **sin cookie** y co
 `public, max-age=300, s-maxage=3600`. Una versión anterior de esta sesión dijo
 lo contrario y estaba equivocada.
 
-### Parte A (commit `cf52e01`, solo local)
+### Subido a producción (6-nov)
+
+El usuario subió por File Manager los 8 archivos: `about.blade.php`,
+`layouts/app.blade.php`, `welcome.blade.php`, `routes/public.php`,
+`config/services.php`, `lang/en/lugares.php`, `lang/es/lugares.php` y
+`LugaresController.php`. Verificado por HTTP después:
+
+- `/about` → 200 (antes 404), 0,9 s.
+- `/canada/nova-scotia` → 200 en 0,5 s, con enlaces a las páginas 2 a 7.
+- `/canada/nova-scotia?page=2` → 200 (1,0 s); `?page=99` → **404**.
+- `/es` → 301 como antes.
+
+La preocupación de abajo sobre el costo de `paginate()` y del orden por
+distancia queda **resuelta en lo que se ve**: las páginas de provincia responden
+en ~1 s ya con Cloudflare delante. No se midió la ficha de ciudad con vecinas
+cercanas ni se comprobó que `/about` muestre correo (`CONTACT_EMAIL` no se
+configuró; el chequeo no encontró ningún `mailto:`).
+
+### Parte A (commit `cf52e01`, subido)
 
 1. **Provincias de 300 en 300** (`POR_PAGINA`, antes 60) con `paginate()` y
    enlaces numerados a todas las páginas. Nova Scotia pasa de ~31 páginas a 7.
@@ -2235,14 +2253,14 @@ ciudades para que exista `?page=2`. Suite: **298 tests, 832 assertions**.
   traducción al español (ya pasaba con Previous/Next). Traducirlo.
 - Las URLs `?page=N` ya están en Google y ahora muestran otras ciudades.
 
-### /about (commit `4c301ca`, solo local)
+### /about (commit `4c301ca`, subido)
 
 Vista `about.blade.php`, ruta `/about` (antes de `/{pais}`), enlace en el footer
 y `CONTACT_EMAIL` en `config/services.php`. Sin la variable no muestra correo.
 También reescribe en `lang/` y `welcome` "lo que la gente buscó" por "calles
-registradas". Revisada en local por el usuario: aprobada. **Sin subir.** En
-producción `/about` da 404 hasta entonces. Si se sube, definir `CONTACT_EMAIL`
-en el `.env` del hosting.
+registradas". Revisada en local por el usuario: aprobada. **Subida el 6-nov**
+(responde 200). Sin `CONTACT_EMAIL` en el `.env` del hosting no muestra correo:
+decidir si se define.
 
 Archivos de `/about` para subir: `resources/views/about.blade.php`,
 `layouts/app.blade.php`, `welcome.blade.php`, `routes/public.php`,
@@ -2251,7 +2269,8 @@ Parte A: solo `app/Http/Controllers/LugaresController.php`.
 
 ### Lo que sigue, en orden
 
-1. Subir `/about` y la Parte A (después de medir en la base real).
+1. ~~Subir `/about` y la Parte A~~ — **hecho el 6-nov**. Falta decidir
+   `CONTACT_EMAIL` y traducir el pie de paginación al español.
 2. Detalle de cobertura de las 14 fichas no indexadas (Search Console): si dice
    "Descubierta" pesó la Parte A; si dice "Rastreada: sin indexar", la B.
 3. Parte B: menos anuncios en fichas con pocas calles (1 unidad bajo ~10),
