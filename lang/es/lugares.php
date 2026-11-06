@@ -96,6 +96,7 @@ return [
     'ciudad' => [
         'titulo' => 'Calles y direcciones de :ciudad, :region',
         'descripcion' => 'Busca una dirección por calle y número en :lugar. :calles :palabra registradas de la A a la Z, con el mapa y la ubicación exacta.',
+        'descripcion_con_poblacion' => 'Busca una dirección por calle y número en :lugar, con :poblacion habitantes. :calles :palabra registradas de la A a la Z, con el mapa y la ubicación exacta.',
         'altura_label' => 'Número',
         'altura_placeholder' => 'N.º',
         'calle_label' => 'Busca una calle de :ciudad',

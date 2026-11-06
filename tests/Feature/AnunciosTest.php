@@ -78,7 +78,68 @@ class AnunciosTest extends TestCase
             'services.adsense.slots.pais_superior' => '5555555555',
             'services.adsense.slots.pais_medio' => '6666666666',
             'services.adsense.indice_cada' => 8,
+            // En 0 para que la regla de las fichas chicas no afecte a los
+            // demás casos; los suyos la fijan en 10.
+            'services.adsense.minimo_calles' => 0,
         ]);
+    }
+
+    /**
+     * Una ficha con pocas calles es casi una página vacía: lleva solo la
+     * unidad final, no las tres. El sitio viene de una penalización
+     * algorítmica y un mapa con dos anuncios arriba es la señal equivocada.
+     */
+    public function test_una_ficha_con_pocas_calles_lleva_solo_la_unidad_final(): void
+    {
+        $this->configurarAnuncios();
+        config(['services.adsense.minimo_calles' => 10]);
+
+        $html = $this->get(self::FICHA)->assertOk()->getContent();
+
+        preg_match_all('/data-ad-slot="(\d+)"/', $html, $encontrados);
+        $this->assertSame(['3333333333'], $encontrados[1]);
+        $this->assertSame(1, substr_count($html, 'adsbygoogle = window.adsbygoogle'));
+    }
+
+    /** En el límite: 10 calles ya llevan las tres, 9 todavía no. */
+    public function test_el_limite_de_calles_es_inclusivo(): void
+    {
+        $this->configurarAnuncios();
+        config(['services.adsense.minimo_calles' => 10]);
+
+        // El setUp ya crea 1 calle: con 8 más son 9.
+        foreach (range(1, 8) as $i) {
+            DB::table('busquedas')->insert([
+                'ciudad_id' => 5913490, 'nombre_calle' => "calle {$i}",
+                'nombre_calle_compacto' => "calle{$i}", 'cantidad_busquedas' => 1,
+            ]);
+        }
+        $nueve = $this->get(self::FICHA)->assertOk()->getContent();
+        $this->assertStringNotContainsString('data-ad-slot="1111111111"', $nueve);
+
+        DB::table('busquedas')->insert([
+            'ciudad_id' => 5913490, 'nombre_calle' => 'calle 9',
+            'nombre_calle_compacto' => 'calle9', 'cantidad_busquedas' => 1,
+        ]);
+        \Illuminate\Support\Facades\Cache::flush();
+        $diez = $this->get(self::FICHA)->assertOk()->getContent();
+        $this->assertStringContainsString('data-ad-slot="1111111111"', $diez);
+        $this->assertStringContainsString('data-ad-slot="2222222222"', $diez);
+        $this->assertStringContainsString('data-ad-slot="3333333333"', $diez);
+    }
+
+    /** Una ficha con contenido de verdad conserva el reparto de siempre. */
+    public function test_una_ficha_con_muchas_calles_conserva_las_tres_unidades(): void
+    {
+        $this->configurarAnuncios();
+        config(['services.adsense.minimo_calles' => 10]);
+        $this->llenarElIndice(); // 27 calles
+
+        $html = $this->get(self::FICHA)->assertOk()->getContent();
+
+        $this->assertStringContainsString('data-ad-slot="1111111111"', $html);
+        $this->assertStringContainsString('data-ad-slot="2222222222"', $html);
+        $this->assertStringContainsString('data-ad-slot="3333333333"', $html);
     }
 
     /**

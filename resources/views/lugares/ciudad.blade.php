@@ -10,12 +10,91 @@
     'region' => $ciudad->provincia?->nombre ?: $ciudad->pais?->nombre,
 ]))
 
-@section('description', __('lugares.ciudad.descripcion', [
-    'lugar' => $ciudad->display_name.', '
-        .($ciudad->provincia?->nombre ? $ciudad->provincia->nombre.', ' : '').$ciudad->pais?->nombre,
-    'calles' => Idioma::numero($totalCalles),
-    'palabra' => trans_choice('lugares.calles', $totalCalles),
-]))
+{{-- La descripción lleva datos propios de la ficha: las calles y, si se conoce,
+     la población. Antes era la misma plantilla con el nombre cambiado, y
+     decenas de miles de fichas con el mismo texto es lo que le dice a Google
+     que no hay nada distinto en cada una. Sin población real no se inventa:
+     cae a la plantilla de antes. El título no cambia a propósito: es la frase
+     que rankea y un test lo fija. --}}
+@section('description', __(
+    $ciudad->population > 0 ? 'lugares.ciudad.descripcion_con_poblacion' : 'lugares.ciudad.descripcion',
+    [
+        'lugar' => $ciudad->display_name.', '
+            .($ciudad->provincia?->nombre ? $ciudad->provincia->nombre.', ' : '').$ciudad->pais?->nombre,
+        'calles' => Idioma::numero($totalCalles),
+        'palabra' => trans_choice('lugares.calles', $totalCalles),
+        'poblacion' => Idioma::numero((int) $ciudad->population),
+    ]
+))
+
+{{-- Datos estructurados del lugar, solo con lo que la base sabe de verdad:
+     nombre, coordenadas y dónde está contenido. Nada de reseñas, direcciones
+     postales ni población (Place no tiene esa propiedad). En la página de un
+     enlace compartido no van: esa URL no se indexa. --}}
+@unless ($compartido)
+    @push('cabeza')
+        @php
+            $urlFicha = \App\Support\Canonico::url(Idioma::url('ciudad', [
+                $ciudad->pais->url, $ciudad->provincia_slug, $ciudad->segmento,
+            ]));
+            $urlPais = \App\Support\Canonico::url(Idioma::url('pais', $ciudad->pais->url));
+            $urlProvincia = \App\Support\Canonico::url(Idioma::url('provincia', [
+                $ciudad->pais->url, $ciudad->provincia_slug,
+            ]));
+            $tienePais = (bool) $ciudad->pais;
+            $tieneProvincia = (bool) $ciudad->provincia?->nombre;
+
+            $contenidoEn = $tienePais ? ['@type' => 'Country', 'name' => $ciudad->pais->nombre, 'url' => $urlPais] : null;
+            if ($tieneProvincia && $contenidoEn) {
+                $contenidoEn = [
+                    '@type' => 'AdministrativeArea',
+                    'name' => $ciudad->provincia->nombre,
+                    'url' => $urlProvincia,
+                    'containedInPlace' => $contenidoEn,
+                ];
+            }
+
+            $lugar = ['@type' => 'Place', '@id' => $urlFicha.'#lugar', 'name' => $ciudad->display_name, 'url' => $urlFicha];
+            if ($ciudad->centro_x !== null && $ciudad->centro_y !== null) {
+                $lugar['geo'] = [
+                    '@type' => 'GeoCoordinates',
+                    'latitude' => (float) $ciudad->centro_x,
+                    'longitude' => (float) $ciudad->centro_y,
+                ];
+            }
+            if ($contenidoEn) {
+                $lugar['containedInPlace'] = $contenidoEn;
+            }
+
+            $migas = [[__('lugares.inicio'), \App\Support\Canonico::url(route('home'))]];
+            if ($tienePais) {
+                $migas[] = [$ciudad->pais->nombre, $urlPais];
+            }
+            if ($tieneProvincia) {
+                $migas[] = [$ciudad->provincia->nombre, $urlProvincia];
+            }
+            $migas[] = [$ciudad->display_name, $urlFicha];
+
+            $datos = [
+                '@context' => 'https://schema.org',
+                '@graph' => [
+                    $lugar,
+                    [
+                        '@type' => 'BreadcrumbList',
+                        'itemListElement' => array_map(
+                            fn (array $miga, int $i) => [
+                                '@type' => 'ListItem', 'position' => $i + 1, 'name' => $miga[0], 'item' => $miga[1],
+                            ],
+                            $migas,
+                            array_keys($migas)
+                        ),
+                    ],
+                ],
+            ];
+        @endphp
+        <script type="application/ld+json">{!! json_encode($datos, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) !!}</script>
+    @endpush
+@endunless
 
 {{-- El mapa es el elemento más grande de la pantalla, o sea el LCP, y sus
      tiles vienen de otro dominio. Abrir la conexión —DNS, TCP y TLS— mientras
@@ -47,6 +126,11 @@
 @endpush
 
 @section('content')
+    @php
+        // Una ficha con pocas calles lleva solo la unidad final; ver
+        // `services.adsense.minimo_calles`.
+        $variasUnidades = $totalCalles >= config('services.adsense.minimo_calles');
+    @endphp
     <div class="contenedor">
     <nav class="flex flex-wrap items-center gap-2 text-cap text-ash" aria-label="Breadcrumb">
         <a href="{{ route('home') }}">{{ __('lugares.inicio') }}</a>
@@ -100,13 +184,15 @@
         Se reservan 100 px, que es el mayor de los tres formatos: reservar 50
         dejaría saltar la página los 50 de diferencia cuando llega un 320×100.
     --}}
-    @include('partials.ad-slot', [
-        'slot' => config('services.adsense.slots.ciudad_superior'),
-        'formato' => 'horizontal',
-        'anchoCompleto' => false,
-        'clase' => 'mt-6',
-        'estilo' => 'display:block;min-height:100px',
-    ])
+    @if ($variasUnidades)
+        @include('partials.ad-slot', [
+            'slot' => config('services.adsense.slots.ciudad_superior'),
+            'formato' => 'horizontal',
+            'anchoCompleto' => false,
+            'clase' => 'mt-6',
+            'estilo' => 'display:block;min-height:100px',
+        ])
+    @endif
 
     {{--
         El mapa es la página, no una miniatura. Y es nuestro: un Leaflet sobre
@@ -294,10 +380,12 @@
         de la misma tarea. Acá sí va `auto`: lo que hay debajo es una lista,
         así que un formato más alto no tapa ninguna función.
     --}}
-    @include('partials.ad-slot', [
-        'slot' => config('services.adsense.slots.ciudad_medio'),
-        'clase' => 'mt-6',
-    ])
+    @if ($variasUnidades)
+        @include('partials.ad-slot', [
+            'slot' => config('services.adsense.slots.ciudad_medio'),
+            'clase' => 'mt-6',
+        ])
+    @endif
 
     <div class="mt-6 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
 

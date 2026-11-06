@@ -91,6 +91,36 @@ class MetadatosDeBusquedaTest extends TestCase
         $this->assertStringNotContainsString("\n", $c[1]);
     }
 
+    /** La descripción de la ficha de ciudad lleva su población y sus calles. */
+    public function test_la_descripcion_de_la_ciudad_lleva_poblacion_y_calles(): void
+    {
+        $html = $this->get('/canada/alberta/calgary-5913490')->assertOk()->getContent();
+        preg_match('/<meta name="description" content="([^"]*)">/', $html, $c);
+
+        $this->assertStringContainsString('Calgary, Alberta, Canada', $c[1]);
+        $this->assertStringContainsString('home to 1,019,942 people', $c[1]);
+        $this->assertStringContainsString('1 street on record', $c[1]);
+    }
+
+    /** Sin población conocida no se inventa: cae a la plantilla sin ella. */
+    public function test_sin_poblacion_la_descripcion_no_la_menciona(): void
+    {
+        DB::table('ciudades')->where('id', 5913490)->update(['population' => 0]);
+
+        $html = $this->get('/canada/alberta/calgary-5913490')->assertOk()->getContent();
+        preg_match('/<meta name="description" content="([^"]*)">/', $html, $c);
+
+        $this->assertStringNotContainsString('people', $c[1]);
+        $this->assertStringContainsString('1 street on record', $c[1]);
+    }
+
+    /** El título no cambia: es la frase que rankea. */
+    public function test_el_titulo_de_la_ciudad_no_lleva_cifras(): void
+    {
+        $this->get('/canada/alberta/calgary-5913490')
+            ->assertSee('<title>'.self::FRASE.' Calgary, Alberta | worldstreets</title>', false);
+    }
+
     /** La home también rankea con la frase, y no tenía descripción. */
     public function test_la_home_conserva_su_titulo_y_gana_descripcion(): void
     {

@@ -133,6 +133,18 @@ return [
          * duplica las unidades; es un número, no una reescritura.
          */
         'indice_cada' => (int) env('ADSENSE_INDICE_CADA', 8),
+
+        /*
+         * Calles que tiene que tener una ficha de ciudad para llevar las tres
+         * unidades de arriba, medio y final. Por debajo, solo la final.
+         *
+         * Una ficha con 1 a 9 calles es una página casi vacía, y con dos
+         * anuncios y un mapa encima el anuncio pasa a ser lo más grande del
+         * contenido. Es la clase de página que Google evalúa como poco útil, y
+         * este sitio viene de una penalización algorítmica. Queda la unidad del
+         * final porque es la que no empuja el buscador fuera de la pantalla.
+         */
+        'minimo_calles' => (int) env('ADSENSE_MINIMO_CALLES', 10),
     ],
 
     'slack' => [

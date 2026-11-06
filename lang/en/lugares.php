@@ -75,6 +75,8 @@ return [
     'ciudad' => [
         'titulo' => 'Reverse Address Lookup Free in :ciudad, :region',
         'descripcion' => 'Do unlimited reverse address searches in :lugar. :calles :palabra on record, A to Z — find the physical address of a place on the map.',
+        // Con población real: cada ficha dice algo propio y no solo el nombre.
+        'descripcion_con_poblacion' => 'Do unlimited reverse address searches in :lugar, home to :poblacion people. :calles :palabra on record, A to Z — find the physical address of a place on the map.',
         'altura_label' => 'House number',
         'altura_placeholder' => 'No.',
         'calle_label' => 'Find a street in :ciudad',
