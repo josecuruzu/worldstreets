@@ -14,6 +14,9 @@
 > **Actualizado el 2026-10-11.** El Laravel está en producción en
 > `worldstreets.global`: operativo desde el **17-sep**, corte definitivo el
 > **20-sep**. La primera lectura de resultados está en §19.
+>
+> **Actualizado el 2026-11-06.** Cloudflare activo delante del sitio, IndexNow
+> enviado, Parte A del plan hecha en local (sin subir). Ver §21.
 
 ---
 
@@ -2146,3 +2149,114 @@ sitemap:
 8. **Parte C:** esperar el detalle de cobertura de las 14 fichas (punto 3). Si
    dice "Descubierta" pesa la parte A; si dice "Rastreada: sin indexar", la B.
 
+
+## 21. Cloudflare, IndexNow y Parte A (5 y 6-nov)
+
+> Resuelve los pendientes de §20. Lo que no se pudo verificar está dicho.
+
+### Hecho
+
+| pendiente de §20 | estado |
+|---|---|
+| 1. Subir `CloudflareIps.php` y `bootstrap/app.php` | **hecho** (antes de tocar nameservers) |
+| 2. Cloudflare | **dominio activo**; ver abajo qué se verificó |
+| 3. Detalle de cobertura de las 14 fichas | **pendiente** (Search Console, a mano) |
+| 4. Reenviar `sitemap.xml` | **hecho** por el usuario |
+| 5. Remedir hacia el 20-nov | pendiente |
+| 6. Parte A, estructura | **hecho en local**, commit `cf52e01`, **sin subir** |
+| 7. Parte B, calidad de la ficha | pendiente |
+
+### Cloudflare
+
+Verificado por HTTP con `--resolve` hacia una IP de Cloudflare (el resolver
+local todavía tenía el DNS viejo; con 1.1.1.1 los nameservers ya eran
+`alan.ns.cloudflare.com` y `lia.ns.cloudflare.com`):
+
+- `Server: cloudflare`, `CF-RAY` presente. Home y fichas 200; `http://` y `www`
+  dan 301 a `https://worldstreets.global/`.
+- `ads.txt`, `robots.txt`, `sitemap.xml` y el archivo de la clave de IndexNow:
+  200. Googlebot (por User-Agent): 200.
+- `cf-cache-status: DYNAMIC` también en las fichas con `s-maxage=3600`:
+  Cloudflare no cachea HTML por defecto. LiteSpeed sigue cacheando en origen.
+  No hace falta tocarlo.
+
+**No verificado:** el modo SSL (Full strict), la regla WAF de Singapur y China
+(`(ip.geoip.country in {"SG" "CN"} and not cf.client.bot)`, acción Block) y que
+el buscador guarde una búsqueda de prueba. Desde acá no se ve el panel ni se
+puede simular un país. Mirar Security → Events y GA4 en 1-2 días: las sesiones
+de Singapur tienen que caer a casi cero.
+
+Un aviso de Cloudflare de "registro A no cubierto por un certificado" es el
+certificado universal gratuito (cubre la raíz y un nivel de subdominio) o la
+emisión inicial, que tarda hasta una hora. Con nube naranja en un nombre de dos
+niveles da error de certificado; en gris no afecta.
+
+### IndexNow
+
+Clave `34c7442261f34e79b89e1a9b78eba29e`, archivo `<clave>.txt` en la raíz
+(responde 200). Enviadas las **2.524 URLs de `lugares.xml`** (home, países y
+provincias): Yandex `202`, Bing/`api.indexnow.org` `200`, Naver `200`, Seznam
+`200`. Las fichas de ciudad no se enviaron a propósito: 20.000 de golpe no
+ayudan. Google no usa IndexNow; para Google sirve el sitemap.
+
+Trampa: Bing devolvió `403 SiteVerificationNotCompleted` justo después de subir
+la clave y `503` desde `api.indexnow.org`. Pasó solo al reintentar un rato
+después. El cuerpo del envío (JSON con `host`, `key`, `keyLocation`, `urlList`)
+no se guardó en el repo.
+
+### Cookies de la home: no es un fallo
+
+La home manda `Set-Cookie` (`XSRF-TOKEN` y sesión) y `Cache-Control: no-cache,
+private`. Es a propósito: está en el grupo `web` y no en `publico` porque su
+formulario registra búsquedas por POST con CSRF (ver `routes/public.php`). Son 3
+URLs. Las fichas (`/canada`, `/canada/ontario`, `/es`) salen **sin cookie** y con
+`public, max-age=300, s-maxage=3600`. Una versión anterior de esta sesión dijo
+lo contrario y estaba equivocada.
+
+### Parte A (commit `cf52e01`, solo local)
+
+1. **Provincias de 300 en 300** (`POR_PAGINA`, antes 60) con `paginate()` y
+   enlaces numerados a todas las páginas. Nova Scotia pasa de ~31 páginas a 7.
+   El conteo usa el índice `(provincia_id, tiene_calles, population)`.
+2. **Página fuera de rango → 404** (`?page=8` en Ontario). La página 1 nunca
+   falla, aunque la región no tenga fichas.
+3. **Ciudades cercanas en la ficha** (`ciudadesCercanas()`): las 6 más próximas
+   de la provincia por distancia sobre `centro_x` (latitud) y `centro_y`
+   (longitud) con la longitud escalada por cos(lat), y no las más pobladas. Sin
+   coordenadas cae al orden por población. Caché `...vecinas.v2`, un día.
+
+Tests: 4 nuevos en `FichasDeLugarTest`; `HostCanonicoTest` ahora crea 300
+ciudades para que exista `?page=2`. Suite: **298 tests, 832 assertions**.
+
+**Pendiente antes de subir:**
+- Medir `paginate()` y el `ORDER BY` por distancia contra la base real: no se
+  midió. Debería ser barato (≤ ~1.900 filas por provincia) pero no está probado.
+- El pie de paginación sale con "Showing 1 to 300 of N results" y no tiene
+  traducción al español (ya pasaba con Previous/Next). Traducirlo.
+- Las URLs `?page=N` ya están en Google y ahora muestran otras ciudades.
+
+### /about (commit `4c301ca`, solo local)
+
+Vista `about.blade.php`, ruta `/about` (antes de `/{pais}`), enlace en el footer
+y `CONTACT_EMAIL` en `config/services.php`. Sin la variable no muestra correo.
+También reescribe en `lang/` y `welcome` "lo que la gente buscó" por "calles
+registradas". Revisada en local por el usuario: aprobada. **Sin subir.** En
+producción `/about` da 404 hasta entonces. Si se sube, definir `CONTACT_EMAIL`
+en el `.env` del hosting.
+
+Archivos de `/about` para subir: `resources/views/about.blade.php`,
+`layouts/app.blade.php`, `welcome.blade.php`, `routes/public.php`,
+`config/services.php`, `lang/en/lugares.php`, `lang/es/lugares.php`.
+Parte A: solo `app/Http/Controllers/LugaresController.php`.
+
+### Lo que sigue, en orden
+
+1. Subir `/about` y la Parte A (después de medir en la base real).
+2. Detalle de cobertura de las 14 fichas no indexadas (Search Console): si dice
+   "Descubierta" pesó la Parte A; si dice "Rastreada: sin indexar", la B.
+3. Parte B: menos anuncios en fichas con pocas calles (1 unidad bajo ~10),
+   título y descripción con datos reales (población, nº de calles) y JSON-LD de
+   lugar.
+4. Revisar Security → Events de Cloudflare y GA4, y **remedir hacia el 20-nov**
+   filtrando Singapur y China.
+5. Commits `4c301ca` y `cf52e01` sin push.
