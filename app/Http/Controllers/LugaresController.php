@@ -30,8 +30,15 @@ use Illuminate\View\View;
  */
 class LugaresController extends Controller
 {
-    /** Ciudades por página en la ficha de provincia. */
-    private const POR_PAGINA = 60;
+    /**
+     * Ciudades por página en la ficha de provincia.
+     *
+     * 300 y no 60: con 60, Nova Scotia (1.837 fichas) eran ~31 páginas y a las
+     * últimas solo se llegaba pasándolas de a una, o sea a decenas de clics de
+     * la home. Con 300 son 7 y la paginación numerada las enlaza todas, así que
+     * cualquier ficha queda a 2-3 clics. Ninguna provincia pasa de ~1.900.
+     */
+    private const POR_PAGINA = 300;
 
     /** Otras ciudades de la región que se enlazan al pie de una ficha. */
     private const VECINAS = 6;
@@ -211,9 +218,22 @@ class LugaresController extends Controller
             ->conCalles()
             ->orderByDesc('population')
             ->orderBy('nombre')
-            // simplePaginate y no paginate: contar las 155.023 ciudades de la
-            // provincia más grande en cada visita no aporta nada a la página.
-            ->simplePaginate(self::POR_PAGINA, ['id', 'nombre', 'alias', 'population', 'fcode']);
+            // paginate y no simplePaginate: la lista ya es solo de ciudades con
+            // calles (máx. ~1.900 por provincia) y el índice
+            // (provincia_id, tiene_calles, population) resuelve el conteo sin
+            // tocar la tabla. Hace falta el total para enlazar todas las páginas.
+            ->paginate(self::POR_PAGINA, ['id', 'nombre', 'alias', 'population', 'fcode']);
+
+        /*
+         * Una página fuera de rango es 404, no un 200 vacío. Antes
+         * `/canada/ontario?page=8` respondía 200 con canónica propia y cero
+         * ciudades: un espacio infinito de páginas casi idénticas, y Google ya
+         * conoce URLs `?page=N`. La página 1 nunca falla: una región sin
+         * ciudades con calles sigue siendo parte de la jerarquía.
+         */
+        if ($ciudades->currentPage() > 1 && $ciudades->currentPage() > $ciudades->lastPage()) {
+            abort(404);
+        }
 
         return view('lugares.provincia', [
             'pais' => $pais,
@@ -318,15 +338,10 @@ class LugaresController extends Controller
          * responde 410 manda al visitante y al rastreador contra una pared.
          */
         $vecinas = Cache::remember(
-            "lugar.ciudad.{$modelo->id}.vecinas",
+            // v2: antes eran las más pobladas de la región; ahora las más cercanas.
+            "lugar.ciudad.{$modelo->id}.vecinas.v2",
             now()->addDay(),
-            fn () => Ciudad::query()
-                ->where('provincia_id', $modelo->provincia_id)
-                ->whereKeyNot($modelo->id)
-                ->conCalles()
-                ->orderByDesc('population')
-                ->limit(self::VECINAS)
-                ->get(['id', 'nombre', 'alias', 'provincia_id'])
+            fn () => $this->ciudadesCercanas($modelo)
         );
 
         return view('lugares.ciudad', [
@@ -375,6 +390,53 @@ class LugaresController extends Controller
             'direccionInicial' => $direccionInicial,
             'compartido' => $direccionInicial !== null,
         ]);
+    }
+
+    /**
+     * Las ciudades con página más cercanas, dentro de la misma región.
+     *
+     * Antes se enlazaban las más pobladas, que son las mismas para todas las
+     * fichas de la región: las 6 grandes recibían todos los enlaces y el resto
+     * de las fichas no recibía ninguno. Por cercanía cada ficha enlaza a sus
+     * vecinas de verdad, y los enlaces se reparten por toda la región, que es
+     * lo que le da a Google un camino hacia las fichas profundas.
+     *
+     * `centro_x` es la latitud y `centro_y` la longitud. La distancia es
+     * euclidiana sobre grados, con la longitud escalada por cos(latitud): no es
+     * geodésica, pero para ordenar vecinas dentro de una provincia alcanza. Se
+     * calcula en SQL sobre ≤ ~1.900 filas y se cachea un día.
+     *
+     * Sin coordenadas, cae al orden de antes: por población.
+     *
+     * @return \Illuminate\Support\Collection<int, Ciudad>
+     */
+    private function ciudadesCercanas(Ciudad $ciudad): Collection
+    {
+        $consulta = Ciudad::query()
+            ->where('provincia_id', $ciudad->provincia_id)
+            ->whereKeyNot($ciudad->id)
+            ->conCalles();
+
+        $columnas = ['id', 'nombre', 'alias', 'provincia_id'];
+
+        if ($ciudad->centro_x === null || $ciudad->centro_y === null) {
+            return $consulta->orderByDesc('population')->limit(self::VECINAS)->get($columnas);
+        }
+
+        $lat = (float) $ciudad->centro_x;
+        $lon = (float) $ciudad->centro_y;
+        $escala = cos(deg2rad($lat)) ** 2;
+
+        return $consulta
+            ->whereNotNull('centro_x')
+            ->whereNotNull('centro_y')
+            ->orderByRaw(
+                '((centro_x - ?) * (centro_x - ?)) + ((centro_y - ?) * (centro_y - ?) * ?)',
+                [$lat, $lat, $lon, $lon, $escala]
+            )
+            ->orderBy('id')
+            ->limit(self::VECINAS)
+            ->get($columnas);
     }
 
     /**

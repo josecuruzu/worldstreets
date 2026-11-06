@@ -148,6 +148,68 @@ class FichasDeLugarTest extends TestCase
     }
 
     /**
+     * Cada página trae 300 fichas y enlaza a todas las demás por número: así
+     * cualquier ficha profunda queda a 2-3 clics y no a decenas.
+     */
+    public function test_la_provincia_pagina_de_a_300_y_enlaza_todas_las_paginas(): void
+    {
+        // 2 del fixture + 400 = 402 fichas → 2 páginas de 300.
+        $this->crearCiudadesConCalles(400);
+
+        $primera = $this->get('/south-africa/western-cape')->assertOk();
+        $this->assertSame(300, substr_count($primera->getContent(), 'class="-mx-3 flex items-baseline'));
+        $primera->assertSee('/south-africa/western-cape?page=2', false);
+
+        $segunda = $this->get('/south-africa/western-cape?page=2')->assertOk();
+        $this->assertSame(102, substr_count($segunda->getContent(), 'class="-mx-3 flex items-baseline'));
+        $segunda->assertSee('/south-africa/western-cape?page=1', false);
+    }
+
+    /** Fuera de rango es 404: antes era un 200 vacío con canónica propia. */
+    public function test_una_pagina_de_provincia_fuera_de_rango_da_404(): void
+    {
+        $this->crearCiudadesConCalles(400); // 2 páginas
+
+        $this->get('/south-africa/western-cape?page=2')->assertOk();
+        $this->get('/south-africa/western-cape?page=3')->assertNotFound();
+        $this->get('/south-africa/western-cape?page=99')->assertNotFound();
+    }
+
+    /** La primera página nunca falla, aunque la región no tenga fichas. */
+    public function test_la_pagina_uno_de_una_provincia_sin_fichas_sigue_dando_200(): void
+    {
+        DB::table('provincias')->insert([
+            'id' => 'ZA.99', 'nombre' => 'Vacia', 'url' => 'vacia-south-africa', 'pais_id' => 'ZA',
+            'centro_x' => -30, 'centro_y' => 25,
+        ]);
+
+        $this->get('/south-africa/vacia')->assertOk();
+        $this->get('/south-africa/vacia?page=2')->assertNotFound();
+    }
+
+    /**
+     * Las vecinas son las más CERCANAS, no las más pobladas: así cada ficha
+     * enlaza a las suyas y los enlaces se reparten por toda la región.
+     */
+    public function test_la_ficha_enlaza_a_las_ciudades_cercanas_y_no_a_las_mas_pobladas(): void
+    {
+        // Siete ciudades más, de menor a mayor distancia a Cape Town
+        // (-33.9, 18.4). La octava es la más lejana y la más poblada.
+        foreach (range(1, 6) as $i) {
+            $this->crearCiudadEn(7000 + $i, "Cercana {$i}", -33.9 - $i * 0.01, 18.4, population: 100);
+        }
+        $this->crearCiudadEn(7099, 'Lejana Grande', -30.0, 25.0, population: 9_000_000);
+
+        $respuesta = $this->get('/south-africa/western-cape/cape-town-3369157')->assertOk();
+
+        // Stellenbosch (del fixture) está en las mismas coordenadas que Cape
+        // Town, así que ocupa uno de los seis lugares: entran Cercana 1 a 5.
+        $respuesta->assertSee('Stellenbosch')->assertSee('Cercana 1')->assertSee('Cercana 5');
+        $respuesta->assertDontSee('Cercana 6');
+        $respuesta->assertDontSee('Lejana Grande');
+    }
+
+    /**
      * El índice va alfabético y no por contador: 1.017.913 de las 1.059.464
      * filas tienen el contador en 0, así que ordenar por popularidad es ordenar
      * por ruido. Antes la ficha decía "Most searched streets" y listaba por
@@ -437,6 +499,42 @@ class FichasDeLugarTest extends TestCase
             'zoom' => 13,
             'visitas' => 0,
         ]);
+    }
+
+    /** Una ciudad con calles en las coordenadas dadas, para probar cercanía. */
+    private function crearCiudadEn(int $id, string $nombre, float $lat, float $lon, int $population): void
+    {
+        $this->crearCiudad($id, $nombre, $population);
+        DB::table('ciudades')->where('id', $id)->update(['centro_x' => $lat, 'centro_y' => $lon]);
+        $this->crearCalle($id, 'calle de '.strtolower($nombre), 0);
+    }
+
+    /** N ciudades más en Western Cape, todas con calles, para probar paginación. */
+    private function crearCiudadesConCalles(int $cuantas): void
+    {
+        $filas = [];
+        for ($i = 1; $i <= $cuantas; $i++) {
+            $filas[] = [
+                'id' => 8_000_000 + $i,
+                'nombre' => "Pueblo {$i}",
+                'nombre_min' => "pueblo {$i}",
+                'url' => "pueblo-{$i}-western-cape-south-africa",
+                'fcode' => 'PPL',
+                'population' => 1000 - $i,
+                'pais_id' => 'ZA',
+                'provincia_id' => 'ZA.11',
+                'departamento_id' => 'ZA.11.1',
+                'centro_x' => -33.0, 'centro_y' => 19.0,
+                'limite_sw_x' => -34, 'limite_sw_y' => 18.3,
+                'limite_ne_x' => -33.8, 'limite_ne_y' => 18.5,
+                'zoom' => 13,
+                'visitas' => 0,
+                'tiene_calles' => true,
+            ];
+        }
+        foreach (array_chunk($filas, 100) as $lote) {
+            DB::table('ciudades')->insert($lote);
+        }
     }
 
     private function crearCalle(int $ciudadId, string $nombre, int $cantidad): void

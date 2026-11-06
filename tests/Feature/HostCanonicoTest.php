@@ -147,6 +147,23 @@ class HostCanonicoTest extends TestCase
      */
     public function test_el_canonical_conserva_la_paginacion(): void
     {
+        // La página 2 solo existe si hay más de 300 fichas: fuera de rango es 404.
+        $filas = [];
+        for ($i = 1; $i <= 300; $i++) {
+            $filas[] = [
+                'id' => 9_000_000 + $i, 'nombre' => "Pueblo {$i}", 'nombre_min' => "pueblo {$i}",
+                'url' => "pueblo-{$i}", 'fcode' => 'PPL', 'population' => 1000 - $i,
+                'pais_id' => 'CA', 'provincia_id' => 'CA.01', 'departamento_id' => 'CA.01.1',
+                'centro_x' => 51.0, 'centro_y' => -114.0,
+                'limite_sw_x' => 50.7, 'limite_sw_y' => -114.6,
+                'limite_ne_x' => 51.36, 'limite_ne_y' => -113.83,
+                'zoom' => 13, 'visitas' => 0, 'tiene_calles' => true,
+            ];
+        }
+        foreach (array_chunk($filas, 100) as $lote) {
+            DB::table('ciudades')->insert($lote);
+        }
+
         $this->get('https://'.self::CANONICO.'/canada/alberta?page=2')
             ->assertOk()
             ->assertSee('<link rel="canonical" href="https://'.self::CANONICO.'/canada/alberta?page=2">', false);
