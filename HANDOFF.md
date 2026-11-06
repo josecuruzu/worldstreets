@@ -2164,7 +2164,7 @@ sitemap:
 | 4. Reenviar `sitemap.xml` | **hecho** por el usuario |
 | 5. Remedir hacia el 20-nov | pendiente |
 | 6. Parte A, estructura | **hecho y subido el 6-nov**, commit `cf52e01` |
-| 7. Parte B, calidad de la ficha | pendiente |
+| 7. Parte B, calidad de la ficha | **hecha y subida el 6-nov**, commit `aec82f0`; ver abajo |
 
 ### Cloudflare
 
@@ -2267,15 +2267,73 @@ Archivos de `/about` para subir: `resources/views/about.blade.php`,
 `config/services.php`, `lang/en/lugares.php`, `lang/es/lugares.php`.
 Parte A: solo `app/Http/Controllers/LugaresController.php`.
 
+### Parte B (commit `aec82f0`, subida el 6-nov)
+
+1. **Anuncios en fichas chicas.** Una ficha de ciudad con menos de
+   `services.adsense.minimo_calles` calles (env `ADSENSE_MINIMO_CALLES`, por
+   defecto **10**, inclusivo) lleva solo la unidad final; las de arriba y del
+   medio se quitan. Se dejó la final porque es la que no empuja el buscador
+   fuera de la pantalla.
+2. **Descripción con datos reales.** Con población conocida: «…in Calgary,
+   Alberta, Canada, home to 1,019,942 people. 271 streets on record…». Sin
+   población cae a la plantilla anterior; no se inventa. En inglés y español
+   (`descripcion_con_poblacion`).
+3. **JSON-LD** `Place` (nombre, `geo`, `containedInPlace`:
+   AdministrativeArea → Country) más `BreadcrumbList`. Sin población, dirección
+   postal ni reseñas. No se emite en `/r/{codigo}` (no se indexa). Se escapa con
+   `JSON_HEX_TAG` por si un nombre trae `</script>`.
+
+**El título no cambia, a propósito.** Es la frase que rankea
+(`Reverse Address Lookup Free in {ciudad}, {región}`) y `MetadatosDeBusquedaTest`
+lo fija. Agregarle cifras lo alargaría más allá de los ~60 caracteres que Google
+muestra. Queda sin distinguir a las homónimas (hay 578 «Krajan» en East Java).
+Decisión del usuario el 6-nov.
+
+Suite: **310 tests, 886 assertions**. Verificado en producción:
+
+| ficha | calles | unidades de AdSense |
+|---|---|---|
+| Carstairs | 1 | solo la final |
+| Milburn | 7 | solo la final |
+| Alert Bay | 26 | 3 + 1 intercalada |
+| Toronto | 271 | 3 + 3 intercaladas |
+
+JSON-LD válido en producción. **No verificado:** que Google lo acepte (pegar una
+ficha en el Rich Results Test) ni el efecto en indexación o ingresos.
+
+### ⚠️ Trampa: la configuración cacheada del hosting
+
+Subida la Parte B, Carstairs (1 calle) seguía con las tres unidades, aunque la
+vista nueva estaba activa (la descripción ya traía la población). La causa:
+`bootstrap/cache/config.php` existía en el servidor. Con ese archivo Laravel **no
+lee `config/*.php` ni el `.env`**: `services.adsense.minimo_calles` era `null` y
+`1 >= null` da verdadero, o sea la regla quedaba apagada sin ningún error.
+
+Arreglo: se **renombró `bootstrap/cache/config.php` a `config.php.bak`** (el
+6-nov). Después se verificó por HTTP: home, `/about`, país, provincia, fichas,
+`sitemap.xml`, `ads.txt` y `robots.txt` responden 200; el canonical sigue en
+`worldstreets.global`; `adsbygoogle.js` y `googletagmanager` salen una vez por
+página, así que el `.env` se lee bien.
+
+**Cómo aplicarlo de ahora en adelante:**
+- Cualquier cambio en `config/*.php` o en el `.env` **no tiene efecto** mientras
+  exista `bootstrap/cache/config.php`. Hoy no existe: ya se renombró.
+- Si se vuelve a generar la caché de config, hay que acordarse de borrarla o
+  regenerarla en cada cambio. Es la misma familia de trampas que el docroot
+  hermano: no da error, solo no hace lo que dice el código.
+- Sin la caché, Laravel arma la config en cada pedido; cuesta milisegundos y hoy
+  no se nota (0,4 a 1 s por página). Para vigilar.
+- Por lo mismo, `CONTACT_EMAIL` ahora sí se leería desde el `.env` del hosting.
+  Sigue sin definirse: `/about` sale sin correo.
+
 ### Lo que sigue, en orden
 
-1. ~~Subir `/about` y la Parte A~~ — **hecho el 6-nov**. Falta decidir
-   `CONTACT_EMAIL` y traducir el pie de paginación al español.
-2. Detalle de cobertura de las 14 fichas no indexadas (Search Console): si dice
+1. Detalle de cobertura de las 14 fichas no indexadas (Search Console): si dice
    "Descubierta" pesó la Parte A; si dice "Rastreada: sin indexar", la B.
-3. Parte B: menos anuncios en fichas con pocas calles (1 unidad bajo ~10),
-   título y descripción con datos reales (población, nº de calles) y JSON-LD de
-   lugar.
+2. Decidir `CONTACT_EMAIL` y traducir el pie de paginación al español.
+3. Probar una ficha en el Rich Results Test de Google.
 4. Revisar Security → Events de Cloudflare y GA4, y **remedir hacia el 20-nov**
-   filtrando Singapur y China.
-5. Commits `4c301ca` y `cf52e01` sin push.
+   filtrando Singapur y China. Con la Parte A y la B ya en producción, la
+   medición de esa fecha es la que dice si sirvieron.
+5. Comprobar que el buscador del mapa guarda una búsqueda de prueba.
+6. Commits `4c301ca`, `cf52e01` y `aec82f0` sin push.
