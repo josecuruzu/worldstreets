@@ -2158,7 +2158,7 @@ sitemap:
 
 | pendiente de §20 | estado |
 |---|---|
-| 1. Subir `CloudflareIps.php` y `bootstrap/app.php` | **hecho** (antes de tocar nameservers) |
+| 1. Subir `CloudflareIps.php` y `bootstrap/app.php` | **hecho** (confirmado por el usuario el 6-nov; no verificado desde fuera) |
 | 2. Cloudflare | **dominio activo**; ver abajo qué se verificó |
 | 3. Detalle de cobertura de las 14 fichas | **pendiente** (Search Console, a mano) |
 | 4. Reenviar `sitemap.xml` | **hecho** por el usuario |
