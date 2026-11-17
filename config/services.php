@@ -147,6 +147,23 @@ return [
         'minimo_calles' => (int) env('ADSENSE_MINIMO_CALLES', 10),
     ],
 
+    'sitemap' => [
+        /*
+         * Calles que tiene que tener una ficha de ciudad para entrar en el
+         * sitemap (inclusive). Por defecto 11: las de 10 o menos no se declaran.
+         *
+         * Medido el 17-nov-2026 sobre las 112 fichas que Google rastreó y no
+         * indexó: mediana de 1 calle y el 80% con 10 o menos, mientras que las
+         * fichas con clics tenían entre 34 y 161. El 82% de las 18.366 fichas
+         * con calles tiene 10 o menos. Las excluidas siguen respondiendo 200 y
+         * enlazadas; solo dejan de pedirle a Google que las indexe.
+         *
+         * Con 1 (o 0) se declaran todas las que tienen calles, como antes.
+         * Ojo: con `bootstrap/cache/config.php` presente este valor no se lee.
+         */
+        'minimo_calles' => (int) env('SITEMAP_MINIMO_CALLES', 11),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

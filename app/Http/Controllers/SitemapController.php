@@ -51,7 +51,7 @@ class SitemapController extends Controller
      */
     public function index(): Response
     {
-        $paises = Cache::remember('sitemap.paises.v2', now()->addHours(self::HORAS_DE_CACHE), fn () => $this->paisesConCiudades());
+        $paises = Cache::remember('sitemap.paises.v3', now()->addHours(self::HORAS_DE_CACHE), fn () => $this->paisesConCiudades());
 
         $mapas = $paises
             ->map(fn (string $url) => route('sitemap.pais', $url))
@@ -66,7 +66,7 @@ class SitemapController extends Controller
      */
     public function lugares(): Response
     {
-        $urls = Cache::remember('sitemap.lugares.v2', now()->addHours(self::HORAS_DE_CACHE), function () {
+        $urls = Cache::remember('sitemap.lugares.v3', now()->addHours(self::HORAS_DE_CACHE), function () {
             $paises = $this->paisesConCiudades();
 
             $provincias = Provincia::query()
@@ -104,11 +104,11 @@ class SitemapController extends Controller
         $modelo = Pais::byUrl($pais)->firstOrFail(['id', 'url']);
 
         $urls = Cache::remember(
-            "sitemap.ciudades.{$modelo->id}.v2",
+            "sitemap.ciudades.{$modelo->id}.v3",
             now()->addHours(self::HORAS_DE_CACHE),
             fn () => Ciudad::query()
                 ->where('pais_id', $modelo->id)
-                ->conCalles()
+                ->paraSitemap()
                 ->with('provincia:id,nombre')
                 ->orderByDesc('population')
                 ->get(['id', 'nombre', 'alias', 'pais_id', 'provincia_id'])
@@ -132,7 +132,7 @@ class SitemapController extends Controller
      */
     private function paisesConCiudades(): Collection
     {
-        $ids = Ciudad::query()->conCalles()->distinct()->pluck('pais_id');
+        $ids = Ciudad::query()->paraSitemap(general: true)->distinct()->pluck('pais_id');
 
         return Pais::query()
             ->whereIn('id', $ids)
@@ -149,7 +149,7 @@ class SitemapController extends Controller
      */
     private function provinciasConCiudades(): Collection
     {
-        return Ciudad::query()->conCalles()->distinct()->pluck('provincia_id');
+        return Ciudad::query()->paraSitemap(general: true)->distinct()->pluck('provincia_id');
     }
 
     /**
@@ -160,7 +160,7 @@ class SitemapController extends Controller
     private function regionesDesconocidas(): Collection
     {
         $paises = Ciudad::query()
-            ->conCalles()
+            ->paraSitemap(general: true)
             ->whereRaw("provincia_id LIKE '%.00'")
             ->distinct()
             ->pluck('pais_id');

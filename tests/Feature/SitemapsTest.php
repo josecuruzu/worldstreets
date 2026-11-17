@@ -26,6 +26,10 @@ class SitemapsTest extends TestCase
     {
         parent::setUp();
 
+        // El resto de la suite corre con el umbral en 1 (phpunit.xml); acá se
+        // prueba la regla de verdad.
+        config(['services.sitemap.minimo_calles' => 11]);
+
         DB::table('continentes')->insert([
             'id' => 'AF', 'nombre' => 'Africa', 'url' => 'africa',
             'centro_x' => 0, 'centro_y' => 20, 'zoom' => 3, 'descripcion' => '',
@@ -47,12 +51,36 @@ class SitemapsTest extends TestCase
                 'centro_x' => -22.5, 'centro_y' => 17.0],
         ]);
 
-        $this->crearCiudad(3369157, 'Cape Town', 'ZA', 'ZA.11', conCalles: true);
+        $this->crearCiudad(3369157, 'Cape Town', 'ZA', 'ZA.11', conCalles: true, calles: 12);
         $this->crearCiudad(3361414, 'Stellenbosch', 'ZA', 'ZA.11', conCalles: false);
         $this->crearCiudad(3352136, 'Windhoek', 'NA', 'NA.21', conCalles: false);
+
+        // El umbral del sitemap es 11 calles, inclusive.
+        $this->crearCiudad(3366880, 'Paarl', 'ZA', 'ZA.11', conCalles: true, calles: 11);
+        $this->crearCiudad(3382160, 'Franschhoek', 'ZA', 'ZA.11', conCalles: true, calles: 10);
+        // Con calles, pero muy pocas: ni ella ni su provincia ni su país
+        // tienen que declararse.
+        $this->crearCiudad(964137, 'Pretoria', 'ZA', 'ZA.06', conCalles: true, calles: 5);
+        $this->crearCiudad(3352137, 'Walvis Bay', 'NA', 'NA.21', conCalles: true, calles: 2);
     }
 
-    private function crearCiudad(int $id, string $nombre, string $pais, string $provincia, bool $conCalles): void
+    private function crearCalles(int $ciudad, int $cantidad): void
+    {
+        $filas = [];
+
+        for ($i = 1; $i <= $cantidad; $i++) {
+            $filas[] = [
+                'ciudad_id' => $ciudad,
+                'nombre_calle' => "Calle {$i}",
+                'nombre_calle_compacto' => "calle{$i}",
+                'cantidad_busquedas' => 1,
+            ];
+        }
+
+        DB::table('busquedas')->insert($filas);
+    }
+
+    private function crearCiudad(int $id, string $nombre, string $pais, string $provincia, bool $conCalles, int $calles = 0): void
     {
         DB::table('ciudades')->insert([
             'id' => $id,
@@ -71,6 +99,8 @@ class SitemapsTest extends TestCase
             'visitas' => 0,
             'tiene_calles' => $conCalles,
         ]);
+
+        $this->crearCalles($id, $calles);
     }
 
     public function test_el_indice_declara_un_archivo_por_pais_con_contenido(): void
@@ -92,6 +122,55 @@ class SitemapsTest extends TestCase
 
         $respuesta->assertSee('/south-africa/western-cape/cape-town-3369157', false);
         $respuesta->assertDontSee('stellenbosch', false);
+    }
+
+    /**
+     * Medido el 17-nov-2026: las fichas que Google rastreó y no indexó tienen
+     * mediana de 1 calle, y las que tienen clics entre 34 y 161. Las de 10
+     * calles o menos no se declaran; con 11 ya sí.
+     */
+    public function test_el_sitemap_no_declara_fichas_con_pocas_calles(): void
+    {
+        $this->get('/sitemaps/south-africa.xml')
+            ->assertOk()
+            ->assertSee('cape-town-3369157', false)
+            ->assertSee('paarl-3366880', false)
+            ->assertDontSee('franschhoek', false)
+            ->assertDontSee('pretoria', false);
+    }
+
+    /** No declararla no la elimina: sigue siendo navegable. */
+    public function test_una_ficha_fuera_del_sitemap_sigue_respondiendo_200(): void
+    {
+        $this->get('/south-africa/western-cape/franschhoek-3382160')->assertOk();
+    }
+
+    /**
+     * Si todas las fichas de una provincia o de un país son chicas, no se
+     * declara ni su ficha ni su archivo: serían una lista casi vacía, o un 404.
+     */
+    public function test_provincias_y_paises_con_solo_fichas_chicas_no_se_declaran(): void
+    {
+        $this->get('/sitemaps/lugares.xml')
+            ->assertOk()
+            ->assertDontSee('/south-africa/gauteng', false)
+            ->assertDontSee('/namibia', false);
+
+        $this->get('/sitemap.xml')->assertDontSee('/sitemaps/namibia.xml', false);
+        $this->get('/sitemaps/namibia.xml')->assertStatus(404);
+    }
+
+    /** Con el umbral en 1 se vuelve a declarar todo lo que tiene calles. */
+    public function test_con_el_umbral_en_uno_se_declaran_todas_las_que_tienen_calles(): void
+    {
+        config(['services.sitemap.minimo_calles' => 1]);
+
+        $this->get('/sitemaps/south-africa.xml')
+            ->assertOk()
+            ->assertSee('franschhoek-3382160', false)
+            ->assertSee('pretoria-964137', false);
+
+        $this->get('/sitemap.xml')->assertSee('/sitemaps/namibia.xml', false);
     }
 
     /**

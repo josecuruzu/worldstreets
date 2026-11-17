@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class Ciudad extends Model
@@ -392,6 +393,49 @@ class Ciudad extends Model
     public function scopeConCalles(Builder $query): Builder
     {
         return $query->where('tiene_calles', true);
+    }
+
+    /**
+     * Las fichas que se declaran en el sitemap: con calles y, además, con al
+     * menos `services.sitemap.minimo_calles` filas en `busquedas`.
+     *
+     * Dos formas, según cuántas filas se miren (medido sobre 18.364 fichas):
+     *
+     *  - Correlacionada (por defecto): cuenta solo para las filas ya filtradas.
+     *    Para un país es lo barato (Canadá 0,16 s).
+     *  - Agrupada (`$general = true`): un `GROUP BY` sobre `busquedas`. Para el
+     *    índice y las provincias, que miran todo el sitio, es 6 a 10 veces más
+     *    rápida (0,7 s contra 4 s).
+     */
+    public function scopeParaSitemap(Builder $query, bool $general = false): Builder
+    {
+        $minimo = (int) config('services.sitemap.minimo_calles');
+
+        $query->conCalles();
+
+        if ($minimo <= 1) {
+            return $query;
+        }
+
+        if ($general) {
+            // JOIN y no `IN (…)`: el optimizador de MySQL elegía mal el plan
+            // con el `IN` (48 s en las regiones desconocidas).
+            return $query->joinSub(
+                DB::table('busquedas')
+                    ->select('ciudad_id')
+                    ->groupBy('ciudad_id')
+                    ->havingRaw('count(*) >= ?', [$minimo]),
+                'con_calles',
+                'con_calles.ciudad_id',
+                '=',
+                'ciudades.id'
+            );
+        }
+
+        return $query->whereRaw(
+            '(select count(*) from busquedas where busquedas.ciudad_id = ciudades.id) >= ?',
+            [$minimo]
+        );
     }
 
     /**
